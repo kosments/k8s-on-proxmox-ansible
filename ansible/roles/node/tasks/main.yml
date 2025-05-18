@@ -1,0 +1,27 @@
+---
+# Node specific tasks
+
+# Allow required ports through firewall
+- name: Allow Kubernetes ports through firewall
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  with_items:
+    - 10250  # kubelet API
+    - 30000:32767  # NodePort Services
+
+# Join the Kubernetes cluster
+- name: Copy join command from master
+  copy:
+    src: /tmp/kubeadm_join_cmd.sh
+    dest: /tmp/kubeadm_join_cmd.sh
+    mode: 0777
+
+- name: Join the Kubernetes cluster
+  shell: sh /tmp/kubeadm_join_cmd.sh
+  register: join_result
+  changed_when: join_result.rc == 0
+  failed_when: join_result.rc != 0 and "already exists" not in join_result.stderr
+  args:
+    creates: /etc/kubernetes/kubelet.conf
