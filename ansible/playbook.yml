@@ -1,0 +1,20 @@
+---
+# Kubernetes cluster setup playbook
+
+- name: Apply common configurations to all nodes
+  hosts: k8s_cluster
+  become: yes
+  roles:
+    - common
+
+- name: Configure master node
+  hosts: masters
+  become: yes
+  roles:
+    - master
+
+- name: Configure worker nodes
+  hosts: nodes
+  become: yes
+  roles:
+    - node
