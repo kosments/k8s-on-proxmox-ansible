@@ -1,0 +1,18 @@
+vm_template_id: 9000
+vm_base_id: 101
+vm_names:
+  - k8s-master
+  - k8s-node1
+  - k8s-node2
+vm_ip_suffixes:
+  - 201
+  - 202
+  - 203
+ip_base: "192.168.10"
+cidr: "/24"
+gateway: "192.168.10.1"
+bridge: "vmbr0"
+ciuser: "ubuntu"
+sshkey_path: "~/.ssh/id_rsa.pub"
+memory: 2048
+cores: 2

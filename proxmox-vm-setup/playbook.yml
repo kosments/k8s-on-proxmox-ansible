@@ -1,0 +1,23 @@
+- name: Create and configure Proxmox VMs
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    vm_config:
+      - id: 101
+        name: k8s-master
+        ip: 192.168.10.101
+      - id: 102
+        name: k8s-node1
+        ip: 192.168.10.102
+      - id: 103
+        name: k8s-node2
+        ip: 192.168.10.103
+
+  tasks:
+    - name: Create VMs
+      include_tasks: create_vm.yml
+      loop: "{{ vm_config }}"
+      loop_control:
+        loop_var: vm

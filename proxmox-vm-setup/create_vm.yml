@@ -1,0 +1,14 @@
+- name: Clone base VM for {{ vm.name }}
+  command: >
+    qm clone 9000 {{ vm.id }}
+    --name {{ vm.name }}
+    --full true
+    --storage local-lvm
+
+- name: Set IP for {{ vm.name }}
+  command: >
+    qm set {{ vm.id }}
+    --ipconfig0 ip={{ vm.ip }}/24,gw=192.168.10.1
+
+- name: Start VM {{ vm.name }}
+  command: qm start {{ vm.id }}
