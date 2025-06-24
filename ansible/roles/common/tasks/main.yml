@@ -1,6 +1,36 @@
 ---
 # Common tasks for all Kubernetes nodes
 
+# Fix locale settings first
+- name: Install locales package
+  apt:
+    name: locales
+    state: present
+    update_cache: yes
+
+- name: Generate en_US.UTF-8 locale
+  locale_gen:
+    name: en_US.UTF-8
+    state: present
+
+- name: Set system locale to en_US.UTF-8
+  copy:
+    content: |
+      LANG=en_US.UTF-8
+      LC_ALL=en_US.UTF-8
+    dest: /etc/default/locale
+    mode: '0644'
+  notify: reload locale
+
+- name: Set environment locale variables
+  lineinfile:
+    path: /etc/environment
+    line: "{{ item }}"
+    create: yes
+  with_items:
+    - "LANG=en_US.UTF-8"
+    - "LC_ALL=en_US.UTF-8"
+
 # Update apt cache and install required packages
 - name: Update apt cache
   apt:
