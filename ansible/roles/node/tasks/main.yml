@@ -2,7 +2,7 @@
 # Node specific tasks
 
 # Allow required ports through firewall
-- name: Allow Kubernetes ports through firewall
+- name: Allow Kubernetes worker node ports through firewall
   ufw:
     rule: allow
     port: "{{ item }}"
@@ -11,17 +11,41 @@
     - 10250  # kubelet API
     - 30000:32767  # NodePort Services
 
+# Allow flannel overlay network
+- name: Allow flannel overlay network
+  ufw:
+    rule: allow
+    port: "8472"
+    proto: udp
+
+# Check if node is already joined to cluster
+- name: Check if node is already part of cluster
+  stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubelet_conf
+
+# Wait for join command to be available
+- name: Wait for join command file
+  wait_for:
+    path: /tmp/kubeadm_join_cmd.sh
+    timeout: 300
+  when: not kubelet_conf.stat.exists
+
 # Join the Kubernetes cluster
 - name: Copy join command from master
   copy:
     src: /tmp/kubeadm_join_cmd.sh
     dest: /tmp/kubeadm_join_cmd.sh
     mode: 0777
+  when: not kubelet_conf.stat.exists
 
 - name: Join the Kubernetes cluster
   shell: sh /tmp/kubeadm_join_cmd.sh
   register: join_result
-  changed_when: join_result.rc == 0
+  when: not kubelet_conf.stat.exists
   failed_when: join_result.rc != 0 and "already exists" not in join_result.stderr
-  args:
-    creates: /etc/kubernetes/kubelet.conf
+
+- name: Verify node joined successfully
+  shell: systemctl is-active kubelet
+  register: kubelet_status
+  failed_when: kubelet_status.stdout != "active"
