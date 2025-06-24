@@ -48,6 +48,43 @@
     - gnupg
     - lsb-release
     - software-properties-common
+    - openssh-server
+
+# Configure SSH service
+- name: Ensure SSH server is installed
+  apt:
+    name: openssh-server
+    state: present
+
+- name: Configure SSH daemon
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    backup: yes
+  with_items:
+    - { regexp: '^#?Port', line: 'Port 22' }
+    - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
+    - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
+    - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication yes' }
+    - { regexp: '^#?ChallengeResponseAuthentication', line: 'ChallengeResponseAuthentication no' }
+    - { regexp: '^#?UsePAM', line: 'UsePAM yes' }
+  notify: restart sshd
+
+- name: Start and enable SSH service
+  systemd:
+    name: ssh
+    state: started
+    enabled: yes
+    daemon_reload: yes
+
+- name: Start and enable SSH service (alternative name)
+  systemd:
+    name: sshd
+    state: started
+    enabled: yes
+    daemon_reload: yes
+  ignore_errors: yes
 
 # Configure containerd
 - name: Create containerd config directory

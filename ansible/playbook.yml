@@ -2,19 +2,43 @@
 # Kubernetes cluster setup playbook
 
 - name: Apply common configurations to all nodes
-  hosts: k8s_cluster
+  hosts: all
   become: yes
+  gather_facts: false
+  vars:
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+    ansible_ssh_retries: 3
+  
+  pre_tasks:
+    - name: Wait for SSH to become available
+      wait_for_connection:
+        delay: 10
+        timeout: 300
+      retries: 3
+      delay: 30
+    
+    - name: Gather facts after connection is established
+      setup:
+
   roles:
     - common
 
-- name: Configure master node
+- name: Configure Kubernetes master
   hosts: masters
   become: yes
+  gather_facts: false
+  vars:
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+  
   roles:
     - master
 
-- name: Configure worker nodes
+- name: Configure Kubernetes nodes
   hosts: nodes
   become: yes
+  gather_facts: false
+  vars:
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+  
   roles:
     - node
