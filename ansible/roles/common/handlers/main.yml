@@ -1,0 +1,7 @@
+---
+# Handlers for common role
+
+- name: reload locale
+  shell: |
+    locale-gen
+    update-locale
