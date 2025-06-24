@@ -5,10 +5,50 @@
     --full true
     --storage local-lvm
 
-- name: Set IP for {{ vm.name }}
+- name: Set cloud-init and network configuration for {{ vm.name }}
   command: >
     qm set {{ vm.id }}
     --ipconfig0 ip={{ vm.ip }}/24,gw=192.168.10.1
+    --ciuser ubuntu
+    --cipassword ubuntu
+    --sshkeys ~/.ssh/id_rsa.pub
+    --agent 1
+
+- name: Set additional cloud-init user data for {{ vm.name }}
+  shell: |
+    qm set {{ vm.id }} --cicustom "user=local:snippets/user-data-{{ vm.name }}.yml"
+
+- name: Create cloud-init user data file for SSH configuration
+  copy:
+    content: |
+      #cloud-config
+      users:
+        - name: ubuntu
+          sudo: ALL=(ALL) NOPASSWD:ALL
+          shell: /bin/bash
+          ssh_authorized_keys:
+            - "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+      
+      packages:
+        - openssh-server
+      
+      runcmd:
+        - systemctl enable ssh
+        - systemctl start ssh
+        - ufw allow ssh
+        - sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+        - sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+        - systemctl restart ssh
+    dest: "/var/lib/vz/snippets/user-data-{{ vm.name }}.yml"
+    mode: '0644'
+  delegate_to: "{{ proxmox_host }}"
 
 - name: Start VM {{ vm.name }}
   command: qm start {{ vm.id }}
+
+- name: Wait for VM {{ vm.name }} to be ready
+  wait_for:
+    host: "{{ vm.ip }}"
+    port: 22
+    delay: 30
+    timeout: 300
