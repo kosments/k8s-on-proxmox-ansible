@@ -56,6 +56,13 @@
     name: openssh-server
     state: present
 
+- name: Ensure SSH service is running before configuration
+  systemd:
+    name: ssh
+    state: started
+    enabled: yes
+    daemon_reload: yes
+
 - name: Configure SSH daemon
   lineinfile:
     path: /etc/ssh/sshd_config
@@ -71,7 +78,7 @@
     - { regexp: '^#?UsePAM', line: 'UsePAM yes' }
   notify: restart sshd
 
-- name: Start and enable SSH service
+- name: Start and enable SSH service (main)
   systemd:
     name: ssh
     state: started
@@ -85,6 +92,13 @@
     enabled: yes
     daemon_reload: yes
   ignore_errors: yes
+
+- name: Verify SSH service is listening on port 22
+  wait_for:
+    port: 22
+    host: 0.0.0.0
+    delay: 5
+    timeout: 30
 
 # Configure containerd
 - name: Create containerd config directory

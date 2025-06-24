@@ -31,17 +31,31 @@
       
       packages:
         - openssh-server
+        - ufw
+      
+      package_update: true
+      package_upgrade: false
       
       runcmd:
         - systemctl enable ssh
         - systemctl start ssh
+        - systemctl enable sshd
+        - systemctl start sshd
+        - ufw --force enable
         - ufw allow ssh
+        - ufw allow 22/tcp
+        - sed -i 's/#Port 22/Port 22/' /etc/ssh/sshd_config
         - sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
         - sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+        - sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
         - systemctl restart ssh
+        - systemctl restart sshd
+        - netstat -tlnp | grep :22 || echo "SSH not listening on port 22"
+      
+      final_message: "VM initialization complete. SSH should be available on port 22."
     dest: "/var/lib/vz/snippets/user-data-{{ vm.name }}.yml"
     mode: '0644'
-  delegate_to: "{{ proxmox_host }}"
+  delegate_to: "{{ proxmox_host | default('localhost') }}"
 
 - name: Start VM {{ vm.name }}
   command: qm start {{ vm.id }}
