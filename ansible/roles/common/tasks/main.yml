@@ -202,7 +202,6 @@
     - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
     - { name: 'net.ipv4.ip_forward', value: '1' }
   become: true
-    timeout: 30
 
 # Configure containerd
 - name: Create containerd config directory
