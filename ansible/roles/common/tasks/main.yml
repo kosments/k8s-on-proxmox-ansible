@@ -98,6 +98,110 @@
     port: 22
     host: 0.0.0.0
     delay: 5
+
+# Kubernetes Setup
+
+# Add Kubernetes apt repository
+- name: Add Kubernetes apt-key
+  apt_key:
+    url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+    state: present
+  become: true
+
+- name: Add Kubernetes apt repository
+  apt_repository:
+    repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
+    state: present
+    filename: kubernetes
+  become: true
+
+# Install containerd
+- name: Install containerd
+  apt:
+    name: containerd
+    state: present
+  become: true
+
+# Configure containerd
+- name: Create containerd config directory
+  file:
+    path: /etc/containerd
+    state: directory
+  become: true
+
+- name: Configure containerd
+  shell: containerd config default > /etc/containerd/config.toml
+  become: true
+
+- name: Update containerd config for systemd cgroup driver
+  replace:
+    path: /etc/containerd/config.toml
+    regexp: 'SystemdCgroup = false'
+    replace: 'SystemdCgroup = true'
+  become: true
+
+- name: Restart containerd
+  systemd:
+    name: containerd
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+  become: true
+
+# Install Kubernetes packages
+- name: Install Kubernetes packages
+  apt:
+    name:
+      - kubelet
+      - kubeadm
+      - kubectl
+    state: present
+  become: true
+
+- name: Hold Kubernetes packages
+  dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+  become: true
+
+# Disable swap
+- name: Disable swap
+  command: swapoff -a
+  become: true
+
+- name: Remove swap from /etc/fstab
+  replace:
+    path: /etc/fstab
+    regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+    replace: '# \1'
+  become: true
+
+# Load kernel modules
+- name: Load kernel modules
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - overlay
+    - br_netfilter
+  become: true
+
+# Configure sysctl params
+- name: Configure sysctl params for Kubernetes
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+  loop:
+    - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+    - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+    - { name: 'net.ipv4.ip_forward', value: '1' }
+  become: true
     timeout: 30
 
 # Configure containerd
