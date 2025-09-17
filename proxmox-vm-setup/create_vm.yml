@@ -5,6 +5,10 @@
     --full true
     --storage local-lvm
 
+- name: Resize disk for {{ vm.name }}
+  command: >
+    qm resize {{ vm.id }} scsi0 +10G
+
 - name: Create snippets directory if it doesn't exist
   file:
     path: /var/lib/vz/snippets
@@ -35,13 +39,29 @@
         - openssh-server
       
       runcmd:
+        # SSH設定
         - systemctl enable ssh
         - systemctl start ssh
-        - ufw allow ssh
         - sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
         - sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+        
+        # ファイアウォール設定
+        - ufw default deny incoming
+        - ufw default allow outgoing
+        - ufw allow 22/tcp  # SSH
+        - ufw allow 6443/tcp  # Kubernetes API server
+        - ufw allow 10250/tcp  # Kubelet API
+        - ufw allow 10255/tcp  # Read-only Kubelet API
+        - ufw allow 10257/tcp  # kube-controller-manager
+        - ufw allow 10259/tcp  # kube-scheduler
+        - ufw allow 2379:2380/tcp  # etcd server client API
+        - ufw allow 30000:32767/tcp  # NodePort Services
+        - ufw allow 8472/udp  # Flannel VXLAN
+        - ufw --force enable
+        
+        # サービス再起動
         - systemctl restart ssh
-        - echo "SSH configuration completed" > /tmp/ssh-setup.log
+        - echo "SSH and firewall configuration completed" > /tmp/ssh-setup.log
     dest: "/var/lib/vz/snippets/user-data-{{ vm.name }}.yml"
     mode: '0644'
 
