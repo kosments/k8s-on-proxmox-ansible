@@ -102,15 +102,17 @@
 # Kubernetes Setup
 
 # Add Kubernetes apt repository
-- name: Add Kubernetes apt-key
-  apt_key:
-    url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
-    state: present
+- name: Download Kubernetes apt-key
+  get_url:
+    url: https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key
+    dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+    mode: '0644'
+    force: true
   become: true
 
 - name: Add Kubernetes apt repository
   apt_repository:
-    repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
+    repo: deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /
     state: present
     filename: kubernetes
   become: true
