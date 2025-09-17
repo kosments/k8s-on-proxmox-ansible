@@ -16,6 +16,24 @@
         ip: 192.168.10.103
 
   tasks:
+    - name: Stop existing VMs if running
+      command: qm stop {{ item.id }}
+      loop: "{{ vm_config }}"
+      ignore_errors: yes
+
+    - name: Wait for VMs to stop
+      pause:
+        seconds: 5
+
+    - name: Destroy existing VMs
+      command: qm destroy {{ item.id }}
+      loop: "{{ vm_config }}"
+      ignore_errors: yes
+
+    - name: Wait to ensure cleanup is complete
+      pause:
+        seconds: 5
+
     - name: Create VMs
       include_tasks: create_vm.yml
       loop: "{{ vm_config }}"
