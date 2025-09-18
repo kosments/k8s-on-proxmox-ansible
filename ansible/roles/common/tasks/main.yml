@@ -31,11 +31,32 @@
     - "LANG=en_US.UTF-8"
     - "LC_ALL=en_US.UTF-8"
 
+# Configure DNS settings
+- name: Configure DNS resolver
+  copy:
+    content: |
+      nameserver 8.8.8.8
+      nameserver 8.8.4.4
+    dest: /etc/resolv.conf
+    mode: '0644'
+  become: true
+
 # Update apt cache and install required packages
 - name: Update apt cache
   apt:
     update_cache: yes
     cache_valid_time: 3600
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Wait for dpkg lock
+  shell: while fuser /var/lib/dpkg/lock >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done
+  become: true
+
+- name: Kill unattended-upgrades if running
+  shell: pkill -9 unattended-upgrades || true
+  become: true
+  ignore_errors: yes
 
 - name: Install required packages
   apt:
@@ -77,6 +98,17 @@
     - { regexp: '^#?ChallengeResponseAuthentication', line: 'ChallengeResponseAuthentication no' }
     - { regexp: '^#?UsePAM', line: 'UsePAM yes' }
   notify: restart sshd
+
+- name: Wait for SSH to be available after config changes
+  wait_for:
+    port: 22
+    host: "{{ ansible_host }}"
+    state: started
+    delay: 5
+    timeout: 60
+  become: false
+  ignore_errors: yes
+  delegate_to: localhost
 
 - name: Start and enable SSH service (main)
   systemd:
