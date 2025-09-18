@@ -31,7 +31,22 @@
     - "LANG=en_US.UTF-8"
     - "LC_ALL=en_US.UTF-8"
 
-# Configure DNS settings
+# Configure DNS and networking settings
+- name: Configure DNS resolver and disable IPv6
+  copy:
+    content: |
+      # Disable IPv6
+      net.ipv6.conf.all.disable_ipv6 = 1
+      net.ipv6.conf.default.disable_ipv6 = 1
+      net.ipv6.conf.lo.disable_ipv6 = 1
+    dest: /etc/sysctl.d/99-disable-ipv6.conf
+    mode: '0644'
+  become: true
+
+- name: Apply sysctl settings
+  command: sysctl -p /etc/sysctl.d/99-disable-ipv6.conf
+  become: true
+
 - name: Configure DNS resolver
   copy:
     content: |
@@ -42,12 +57,30 @@
   become: true
 
 # Update apt cache and install required packages
+- name: Clear apt cache
+  shell: |
+    rm -rf /var/lib/apt/lists/*
+    mkdir -p /var/lib/apt/lists/partial
+  become: true
+
+- name: Configure apt to use IPv4
+  copy:
+    content: 'Acquire::ForceIPv4 "true";'
+    dest: /etc/apt/apt.conf.d/99force-ipv4
+    mode: '0644'
+  become: true
+
 - name: Update apt cache
   apt:
     update_cache: yes
     cache_valid_time: 3600
   environment:
     DEBIAN_FRONTEND: noninteractive
+  become: true
+  retries: 3
+  delay: 10
+  register: apt_update
+  until: apt_update is success
 
 - name: Wait for dpkg lock
   shell: while fuser /var/lib/dpkg/lock >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done
@@ -134,6 +167,22 @@
 # Kubernetes Setup
 
 # Add Kubernetes apt repository
+- name: Create apt keyrings directory
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Remove old Kubernetes repository files
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /etc/apt/sources.list.d/kubernetes.list
+    - /etc/apt/keyrings/kubernetes-apt-keyring.asc
+  become: true
+
 - name: Download Kubernetes apt-key
   get_url:
     url: https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key
@@ -147,6 +196,7 @@
     repo: deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /
     state: present
     filename: kubernetes
+    update_cache: yes
   become: true
 
 # Install containerd
