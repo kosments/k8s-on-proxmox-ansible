@@ -32,7 +32,52 @@
     - "LC_ALL=en_US.UTF-8"
 
 # Configure DNS and networking settings
-- name: Configure DNS resolver and disable IPv6
+- name: Install resolvconf
+  apt:
+    name: resolvconf
+    state: present
+  become: true
+
+- name: Configure DNS resolver in resolvconf
+  copy:
+    content: |
+      nameserver 8.8.8.8
+      nameserver 8.8.4.4
+    dest: /etc/resolvconf/resolv.conf.d/base
+    mode: '0644'
+  become: true
+  notify: update resolvconf
+
+- name: Configure systemd-resolved
+  copy:
+    content: |
+      [Resolve]
+      DNS=8.8.8.8 8.8.4.4
+      DNSStubListener=no
+    dest: /etc/systemd/resolved.conf
+    mode: '0644'
+  become: true
+  notify: restart systemd-resolved
+
+- name: Configure DNS server in netplan
+  copy:
+    content: |
+      network:
+        version: 2
+        ethernets:
+          eth0:
+            dhcp4: true
+            nameservers:
+              addresses: [8.8.8.8, 8.8.4.4]
+    dest: /etc/netplan/99-custom-dns.yaml
+    mode: '0644'
+  become: true
+
+- name: Apply netplan configuration
+  command: netplan apply
+  become: true
+
+- name: Configure network settings
   copy:
     content: |
       # Disable IPv6
@@ -45,15 +90,6 @@
 
 - name: Apply sysctl settings
   command: sysctl -p /etc/sysctl.d/99-disable-ipv6.conf
-  become: true
-
-- name: Configure DNS resolver
-  copy:
-    content: |
-      nameserver 8.8.8.8
-      nameserver 8.8.4.4
-    dest: /etc/resolv.conf
-    mode: '0644'
   become: true
 
 # Update apt cache and install required packages
@@ -190,6 +226,13 @@
     mode: '0644'
     force: true
   become: true
+  retries: 5
+  delay: 10
+  register: key_download
+  until: key_download is success
+  environment:
+    http_proxy: ""
+    https_proxy: ""
 
 - name: Add Kubernetes apt repository
   apt_repository:
