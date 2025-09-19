@@ -8,6 +8,16 @@
     daemon_reload: yes
 
 - name: restart sshd alternative
+  service:
+    name: ssh
+    state: restarted
+
+- name: update resolvconf
+  command: resolvconf -u
+  become: true
+
+- name: reload locale
+  command: locale-gen
   systemd:
     name: sshd
     state: restarted
