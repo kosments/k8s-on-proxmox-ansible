@@ -76,7 +76,13 @@ remote_exec() {
     local host=$1
     local cmd=$2
     log "Executing on $host: $cmd"
-    ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$host "sudo bash -c '$cmd'"
+    if ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$host "sudo bash -c '$cmd'"; then
+        log "Command executed successfully on $host"
+        return 0
+    else
+        warn "Command failed on $host, but continuing..."
+        return 1
+    fi
 }
 
 # Setup common components on a node
@@ -88,58 +94,84 @@ setup_common() {
     
     # Update system and set hostname
     remote_exec $host "
+        # Set hostname (idempotent)
         hostnamectl set-hostname $hostname
-        apt-get update && apt-get upgrade -y
         
-        # Install required packages
-        apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
+        # Fix any package issues first (idempotent)
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update || true
+        apt --fix-broken install -y || true
+        apt-get clean
+        apt-get autoclean
+        apt-get update
         
-        # Disable swap
-        swapoff -a
-        sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+        # Upgrade system (idempotent)
+        apt-get upgrade -y
+        apt-get autoremove -y
         
-        # Load kernel modules
-        modprobe overlay
-        modprobe br_netfilter
+        # Install required packages (idempotent)
+        apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release software-properties-common
         
-        # Setup kernel modules to load at boot
-        cat <<EOF > /etc/modules-load.d/containerd.conf
+        # Disable swap (idempotent)
+        swapoff -a || true
+        sed -i '/swap/s/^[^#]/#&/' /etc/fstab || true
+        
+        # Load kernel modules (idempotent)
+        modprobe overlay || true
+        modprobe br_netfilter || true
+        
+        # Setup kernel modules to load at boot (idempotent)
+        if [ ! -f /etc/modules-load.d/containerd.conf ]; then
+            cat <<EOF > /etc/modules-load.d/containerd.conf
 overlay
 br_netfilter
 EOF
+        fi
 
-        # Setup sysctl params
-        cat <<EOF > /etc/sysctl.d/99-kubernetes-cri.conf
+        # Setup sysctl params (idempotent)
+        if [ ! -f /etc/sysctl.d/99-kubernetes-cri.conf ]; then
+            cat <<EOF > /etc/sysctl.d/99-kubernetes-cri.conf
 net.bridge.bridge-nf-call-iptables  = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 net.ipv4.ip_forward                 = 1
 EOF
-        sysctl --system
+        fi
+        sysctl --system || true
         
-        # Install containerd
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-        echo \"deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \$(lsb_release -cs) stable\" > /etc/apt/sources.list.d/docker.list
-        apt-get update
-        apt-get install -y containerd.io
+        # Install containerd (idempotent)
+        if ! command -v containerd &> /dev/null; then
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+            echo \"deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \$(lsb_release -cs) stable\" > /etc/apt/sources.list.d/docker.list
+            apt-get update
+            apt-get install -y containerd.io
+        fi
         
-        # Configure containerd
+        # Configure containerd (idempotent)
         mkdir -p /etc/containerd
-        containerd config default > /etc/containerd/config.toml
-        sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-        systemctl restart containerd
+        if [ ! -f /etc/containerd/config.toml ] || ! grep -q 'SystemdCgroup = true' /etc/containerd/config.toml; then
+            containerd config default > /etc/containerd/config.toml
+            sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+            systemctl restart containerd
+        fi
         systemctl enable containerd
         
-        # Add Kubernetes repository
-        curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | gpg --dearmor -o /usr/share/keyrings/kubernetes-archive-keyring.gpg
-        echo \"deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /\" > /etc/apt/sources.list.d/kubernetes.list
+        # Add Kubernetes repository (idempotent)
+        if [ ! -f /usr/share/keyrings/kubernetes-archive-keyring.gpg ]; then
+            curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | gpg --dearmor -o /usr/share/keyrings/kubernetes-archive-keyring.gpg
+        fi
+        if [ ! -f /etc/apt/sources.list.d/kubernetes.list ]; then
+            echo \"deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /\" > /etc/apt/sources.list.d/kubernetes.list
+        fi
         
-        # Install Kubernetes components
-        apt-get update
-        apt-get install -y kubelet=$K8S_VERSION kubeadm=$K8S_VERSION kubectl=$K8S_VERSION
-        apt-mark hold kubelet kubeadm kubectl
+        # Install Kubernetes components (idempotent)
+        if ! command -v kubeadm &> /dev/null; then
+            apt-get update
+            apt-get install -y kubelet=$K8S_VERSION kubeadm=$K8S_VERSION kubectl=$K8S_VERSION
+            apt-mark hold kubelet kubeadm kubectl
+        fi
         
-        # Enable kubelet
-        systemctl enable kubelet
+        # Enable kubelet (idempotent)
+        systemctl enable kubelet || true
     "
     
     log "Common setup completed on $hostname"
@@ -152,23 +184,30 @@ setup_master() {
     log "Initializing Kubernetes master on $host..."
     
     remote_exec $host "
-        # Initialize cluster
-        kubeadm init --pod-network-cidr=$POD_CIDR --apiserver-advertise-address=$host --control-plane-endpoint=$host:6443 --upload-certs
+        # Check if cluster is already initialized (idempotent)
+        if [ ! -f /etc/kubernetes/admin.conf ]; then
+            log 'Initializing Kubernetes cluster...'
+            kubeadm init --pod-network-cidr=$POD_CIDR --apiserver-advertise-address=$host --control-plane-endpoint=$host:6443 --upload-certs
+        else
+            log 'Kubernetes cluster already initialized'
+        fi
         
-        # Setup kubectl for ubuntu user
+        # Setup kubectl for ubuntu user (idempotent)
         mkdir -p /home/ubuntu/.kube
-        cp /etc/kubernetes/admin.conf /home/ubuntu/.kube/config
-        chown ubuntu:ubuntu /home/ubuntu/.kube/config
+        if [ ! -f /home/ubuntu/.kube/config ]; then
+            cp /etc/kubernetes/admin.conf /home/ubuntu/.kube/config
+            chown ubuntu:ubuntu /home/ubuntu/.kube/config
+        fi
         
-        # Generate join command for worker nodes
+        # Generate join command for worker nodes (always refresh)
         kubeadm token create --print-join-command > /tmp/kubeadm-join-command.txt
     "
     
-    # Copy kubeconfig and join command locally
-    scp -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$host:/etc/kubernetes/admin.conf ./kubeconfig
-    scp -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$host:/tmp/kubeadm-join-command.txt ./join-command.txt
+    # Copy kubeconfig and join command locally (idempotent)
+    scp -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$host:/etc/kubernetes/admin.conf ./kubeconfig 2>/dev/null || true
+    scp -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$host:/tmp/kubeadm-join-command.txt ./join-command.txt 2>/dev/null || true
     
-    log "Master node initialized successfully"
+    log "Master node setup completed"
 }
 
 # Install CNI (Flannel)
@@ -179,7 +218,13 @@ install_cni() {
     
     remote_exec $host "
         export KUBECONFIG=/etc/kubernetes/admin.conf
-        kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+        # Check if Flannel is already installed (idempotent)
+        if ! kubectl get pods -n kube-flannel &>/dev/null; then
+            log 'Installing Flannel CNI...'
+            kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+        else
+            log 'Flannel CNI already installed'
+        fi
     "
     
     log "CNI installation completed"
@@ -192,14 +237,29 @@ join_worker() {
     
     log "Joining worker node $hostname ($host) to cluster..."
     
-    if [ ! -f "./join-command.txt" ]; then
-        error "Join command file not found. Master setup might have failed."
+    # Check if node is already joined (idempotent)
+    remote_exec $host "
+        if [ -f /etc/kubernetes/kubelet.conf ]; then
+            log 'Node $hostname already joined to cluster'
+        else
+            if [ ! -f '/tmp/kubeadm-join-command.txt' ]; then
+                log 'Join command not found, copying from controller...'
+            fi
+            # Execute join command
+            if [ -f '/tmp/kubeadm-join-command.txt' ]; then
+                bash /tmp/kubeadm-join-command.txt
+            else
+                log 'Warning: Could not join node - join command missing'
+            fi
+        fi
+    "
+    
+    # Copy join command to worker node
+    if [ -f "./join-command.txt" ]; then
+        scp -o StrictHostKeyChecking=no -i $SSH_KEY ./join-command.txt $SSH_USER@$host:/tmp/kubeadm-join-command.txt 2>/dev/null || true
     fi
     
-    local join_cmd=$(cat ./join-command.txt)
-    remote_exec $host "$join_cmd"
-    
-    log "Worker node $hostname joined successfully"
+    log "Worker node $hostname setup completed"
 }
 
 # Verify cluster status
@@ -280,6 +340,14 @@ main() {
     # Join worker nodes
     log "Phase 4: Joining worker nodes..."
     sleep 60  # Wait for CNI to be ready
+    
+    # Copy join command to worker nodes first
+    if [ -f "./join-command.txt" ]; then
+        log "Copying join command to worker nodes..."
+        scp -o StrictHostKeyChecking=no -i $SSH_KEY ./join-command.txt $SSH_USER@$NODE1_IP:/tmp/kubeadm-join-command.txt 2>/dev/null || true
+        scp -o StrictHostKeyChecking=no -i $SSH_KEY ./join-command.txt $SSH_USER@$NODE2_IP:/tmp/kubeadm-join-command.txt 2>/dev/null || true
+    fi
+    
     join_worker $NODE1_IP "k8s-node1"
     sleep 30
     join_worker $NODE2_IP "k8s-node2"
