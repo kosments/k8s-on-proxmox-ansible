@@ -194,16 +194,6 @@ create_vm() {
         if timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PasswordAuthentication=no $SSH_USER@$vm_ip "echo 'SSH OK'" &>/dev/null; then
             log "VM $vm_id ($vm_name) is ready and accessible via SSH!"
             
-            # Configure firewall to allow SSH from anywhere
-            log "Configuring firewall for SSH access on VM $vm_id..."
-            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $SSH_USER@$vm_ip "
-                sudo ufw --force enable
-                sudo ufw allow ssh
-                sudo ufw allow 22/tcp
-                sudo ufw reload
-                sudo ufw status
-            " || warn "Failed to configure firewall on VM $vm_id"
-            
             # Show disk usage
             log "Checking disk space on VM $vm_id..."
             ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $SSH_USER@$vm_ip "df -h /" || true
@@ -220,31 +210,6 @@ create_vm() {
     return 0
 }
 
-# Configure firewall on existing VMs
-configure_firewall_all() {
-    log "Configuring firewall on all VMs..."
-    
-    for i in "${!VM_IDS[@]}"; do
-        local vm_id=${VM_IDS[$i]}
-        local vm_name=${VM_NAMES[$i]}
-        local vm_ip=${VM_IPS[$i]}
-        
-        log "Configuring firewall on VM $vm_id ($vm_name)..."
-        
-        if timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PasswordAuthentication=no $SSH_USER@$vm_ip "echo 'SSH OK'" &>/dev/null; then
-            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $SSH_USER@$vm_ip "
-                sudo ufw --force enable
-                sudo ufw allow ssh
-                sudo ufw allow 22/tcp
-                sudo ufw reload
-                echo 'Firewall status for $vm_name:'
-                sudo ufw status
-            " && log "✓ Firewall configured on VM $vm_id ($vm_name)" || warn "✗ Failed to configure firewall on VM $vm_id"
-        else
-            warn "✗ Cannot connect to VM $vm_id ($vm_name) for firewall configuration"
-        fi
-    done
-}
 
 # Verify all VMs are accessible and show their disk usage
 verify_vms() {
@@ -271,15 +236,6 @@ verify_vms() {
 
 # Main execution
 main() {
-    # Check for special commands
-    if [ "$1" = "firewall" ]; then
-        log "Configuring firewall on existing VMs..."
-        check_proxmox
-        configure_firewall_all
-        log "Firewall configuration completed!"
-        exit 0
-    fi
-    
     log "Starting Proxmox VM creation for Kubernetes cluster..."
     log "Configuration:"
     log "  Memory: ${VM_MEMORY}MB per VM"
@@ -341,12 +297,10 @@ main() {
 # Show usage information
 show_usage() {
     echo "Usage:"
-    echo "  $0                 - Create all VMs with firewall configuration"
-    echo "  $0 firewall        - Configure firewall on existing VMs only"
+    echo "  $0                 - Create all VMs"
     echo ""
     echo "Examples:"
     echo "  ./create-vms.sh                # Create all VMs"
-    echo "  ./create-vms.sh firewall       # Configure firewall on existing VMs"
 }
 
 # Check for help
