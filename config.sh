@@ -11,9 +11,9 @@ VM_ROLES=("master" "worker" "worker" "worker")
 
 # Skip flags - set to true to skip VM creation/setup
 SKIP_VM_101=false
-SKIP_VM_102=true   # Temporarily skip VM 102
+SKIP_VM_102=false
 SKIP_VM_103=false
-SKIP_VM_104=false  # New node 3
+SKIP_VM_104=true
 
 # VM Specifications
 VM_MEMORY=4096  # 4GB RAM
