@@ -25,7 +25,9 @@
     - name: Stop existing VMs if running
       command: qm stop {{ item.id }}
       loop: "{{ vm_config }}"
-      when: vm_status.results[ansible_loop.index0].rc == 0
+      loop_control:
+        index_var: vm_index
+      when: vm_status.results[vm_index].rc == 0
       ignore_errors: yes
 
     - name: Wait for VMs to stop
@@ -36,8 +38,9 @@
     - name: Destroy existing VMs
       command: qm destroy {{ item.id }}
       loop: "{{ vm_config }}"
-      when: vm_status.results[ansible_loop.index0].rc == 0
-      ignore_errors: yes
+      loop_control:
+        index_var: vm_index
+      when: vm_status.results[vm_index].rc == 0
       ignore_errors: yes
 
     - name: Wait to ensure cleanup is complete

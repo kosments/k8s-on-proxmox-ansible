@@ -37,6 +37,7 @@
   become: true
   register: disk_import
   failed_when: disk_import.rc != 0 and 'already exists' not in disk_import.stderr
+  when: vm_exists.rc != 0
 
 - name: Configure VM basic settings
   command: >
@@ -54,6 +55,7 @@
     --ipconfig0 ip={{ vm.ip }}/24,gw=192.168.10.1
     --nameserver 8.8.8.8
   become: true
+  when: vm_exists.rc != 0
 
 - name: Check if VM is running
   command: qm status {{ vm.id }}
@@ -78,33 +80,17 @@
   debug:
     msg: "VM {{ vm.name }} ({{ vm.id }}) is ready and accessible via SSH at {{ vm.ip }}"
   when: wait_result is success
-    timeout: 300
-    sleep: 5
   delegate_to: localhost
 
-- name: Apply custom cloud-init user data
-  command: >
-    qm set {{ vm.id }} --cicustom "user=local:snippets/user-data-{{ vm.name }}.yml"
-
-- name: Start VM {{ vm.name }}
-  command: qm start {{ vm.id }}
-
-- name: Wait for VM {{ vm.name }} to be ready
+- name: Test SSH connectivity to {{ vm.name }}
   wait_for:
     host: "{{ vm.ip }}"
     port: 22
-    delay: 60
-    timeout: 300
-  ignore_errors: yes
-
-- name: Additional wait and SSH test for {{ vm.name }}
-  pause:
-    seconds: 30
-
-- name: Test SSH connectivity to {{ vm.name }}
-  command: ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ubuntu@{{ vm.ip }} "echo 'SSH test successful'"
+    delay: 30
+    timeout: 60
   register: ssh_test
-  retries: 5
-  delay: 30
-  until: ssh_test.rc == 0
   ignore_errors: yes
+
+- name: Show SSH connectivity status
+  debug:
+    msg: "SSH connectivity to VM {{ vm.name }} ({{ vm.ip }}): {{ 'Success' if ssh_test is success else 'Failed' }}"
