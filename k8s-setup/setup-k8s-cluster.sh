@@ -56,16 +56,20 @@ error() {
     exit 1
 }
 
-# Clear SSH host keys for all VMs (to avoid host key conflicts on VM recreation)
+# Clear SSH host keys for all active VMs (to avoid host key conflicts on VM recreation)
 clear_ssh_host_keys() {
     log "Clearing SSH host keys to avoid conflicts..."
     
-    # Remove host keys for all VM IPs
-    for ip in $MASTER_IP $NODE1_IP $NODE2_IP; do
-        ssh-keygen -f "/root/.ssh/known_hosts" -R "$ip" 2>/dev/null || true
+    # Remove host keys for all active VM IPs
+    for vm_id in "${ACTIVE_VMS[@]}"; do
+        local vm_ip=$(get_vm_ip $vm_id)
+        if [ -n "$vm_ip" ]; then
+            ssh-keygen -f "/root/.ssh/known_hosts" -R "$vm_ip" 2>/dev/null || true
+            log "Cleared host key for VM $vm_id ($vm_ip)"
+        fi
     done
     
-    log "SSH host keys cleared"
+    log "SSH host keys cleared for all active VMs"
 }
 
 # Test SSH connectivity with aggressive host key management
@@ -499,19 +503,29 @@ main() {
     # Clear SSH host keys to avoid conflicts from VM recreation
     clear_ssh_host_keys
     
-    # Check VM status first
+    # Display cluster configuration
+    log "Kubernetes cluster configuration:"
+    log "  Master VM: $MASTER_VM ($(get_vm_ip $MASTER_VM))"
+    log "  Worker VMs: ${WORKER_VMS[*]}"
+    for worker_vm in "${WORKER_VMS[@]}"; do
+        log "    VM $worker_vm ($(get_vm_ip $worker_vm))"
+    done
+    log "  Total active VMs: ${#ACTIVE_VMS[@]}"
+    
+    # Check VM status for all active VMs
     log "Checking VM status on Proxmox..."
-    for vm_id in 101 102 103; do
+    for vm_id in "${ACTIVE_VMS[@]}"; do
+        local vm_name=$(get_vm_name $vm_id)
         if qm status $vm_id &>/dev/null; then
             local status=$(qm status $vm_id | grep -o 'status: [^,]*' | cut -d' ' -f2)
-            log "VM $vm_id status: $status"
+            log "VM $vm_id ($vm_name) status: $status"
             if [ "$status" != "running" ]; then
                 warn "VM $vm_id is not running. Starting VM..."
                 qm start $vm_id || warn "Failed to start VM $vm_id"
                 sleep 10
             fi
         else
-            error "VM $vm_id does not exist. Please create VMs first using vm-setup/create-vms.sh"
+            error "VM $vm_id ($vm_name) does not exist. Please create VMs first using proxmox-vm-setup/create-vms.sh"
         fi
     done
     
@@ -519,52 +533,70 @@ main() {
     log "Waiting 30 seconds for VMs to be fully ready..."
     sleep 30
     
-    # Test SSH connectivity to all nodes
-    test_ssh $MASTER_IP
-    test_ssh $NODE1_IP
-    test_ssh $NODE2_IP
+    # Test SSH connectivity to all active VMs
+    for vm_id in "${ACTIVE_VMS[@]}"; do
+        local vm_ip=$(get_vm_ip $vm_id)
+        local vm_name=$(get_vm_name $vm_id)
+        log "Testing SSH to VM $vm_id ($vm_name) at $vm_ip..."
+        test_ssh $vm_ip
+    done
     
-    # Check disk space on all nodes
+    # Check disk space on all active nodes
     log "Phase 0: Checking and cleaning up disk space..."
-    check_disk_space $MASTER_IP "k8s-master"
-    check_disk_space $NODE1_IP "k8s-node1" 
-    check_disk_space $NODE2_IP "k8s-node2"
+    for vm_id in "${ACTIVE_VMS[@]}"; do
+        local vm_ip=$(get_vm_ip $vm_id)
+        local vm_name=$(get_vm_name $vm_id)
+        check_disk_space $vm_ip $vm_name
+    done
     
-    # Setup common components on all nodes
+    # Setup common components on all active nodes
     log "Phase 1: Setting up common components..."
-    setup_common $MASTER_IP "k8s-master"
-    setup_common $NODE1_IP "k8s-node1" 
-    setup_common $NODE2_IP "k8s-node2"
+    for vm_id in "${ACTIVE_VMS[@]}"; do
+        local vm_ip=$(get_vm_ip $vm_id)
+        local vm_name=$(get_vm_name $vm_id)
+        setup_common $vm_ip $vm_name
+    done
     
     # Initialize master node
     log "Phase 2: Initializing master node..."
-    setup_master $MASTER_IP
+    local master_ip=$(get_vm_ip $MASTER_VM)
+    setup_master $master_ip
     
     # Install CNI
     log "Phase 3: Installing CNI..."
     sleep 30  # Wait for master to be ready
-    install_cni $MASTER_IP
+    install_cni $master_ip
     
     # Join worker nodes
     log "Phase 4: Joining worker nodes..."
     sleep 60  # Wait for CNI to be ready
     
-    # Copy join command to worker nodes first
-    if [ -f "./join-command.txt" ]; then
-        log "Copying join command to worker nodes..."
-        local scp_opts="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
-        scp $scp_opts -i $SSH_KEY ./join-command.txt $SSH_USER@$NODE1_IP:/tmp/kubeadm-join-command.txt 2>/dev/null || true
-        scp $scp_opts -i $SSH_KEY ./join-command.txt $SSH_USER@$NODE2_IP:/tmp/kubeadm-join-command.txt 2>/dev/null || true
+    if [ ${#WORKER_VMS[@]} -eq 0 ]; then
+        log "No worker nodes to join (single-node cluster)"
+    else
+        # Copy join command to all worker nodes first
+        if [ -f "./join-command.txt" ]; then
+            log "Copying join command to worker nodes..."
+            local scp_opts="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+            for worker_vm in "${WORKER_VMS[@]}"; do
+                local worker_ip=$(get_vm_ip $worker_vm)
+                scp $scp_opts -i $SSH_KEY ./join-command.txt $SSH_USER@$worker_ip:/tmp/kubeadm-join-command.txt 2>/dev/null || true
+            done
+        fi
+        
+        # Join each worker node
+        for worker_vm in "${WORKER_VMS[@]}"; do
+            local worker_ip=$(get_vm_ip $worker_vm)
+            local worker_name=$(get_vm_name $worker_vm)
+            join_worker $worker_ip $worker_name
+            sleep 30  # Wait between joins
+        done
     fi
-    
-    join_worker $NODE1_IP "k8s-node1"
-    sleep 30
-    join_worker $NODE2_IP "k8s-node2"
     
     # Verify cluster
     log "Phase 5: Verifying cluster..."
     sleep 60  # Wait for nodes to be ready
-    verify_cluster $MASTER_IP
+    verify_cluster $master_ip
     
     log "Kubernetes cluster setup completed successfully!"
     log "Kubeconfig saved to ./kubeconfig"
