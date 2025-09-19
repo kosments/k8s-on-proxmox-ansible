@@ -323,6 +323,7 @@ EOF
 # Initialize master node
 setup_master() {
     local host=$1
+    local pod_cidr="$POD_CIDR"
     
     log "Initializing Kubernetes master on $host..."
     
@@ -330,7 +331,7 @@ setup_master() {
         # Check if cluster is already initialized (idempotent)
         if [ ! -f /etc/kubernetes/admin.conf ]; then
             echo 'Initializing Kubernetes cluster...'
-            kubeadm init --pod-network-cidr=$POD_CIDR --apiserver-advertise-address=$host --control-plane-endpoint=$host:6443 --upload-certs
+            kubeadm init --pod-network-cidr=$pod_cidr --apiserver-advertise-address=$host --control-plane-endpoint=$host:6443 --upload-certs
         else
             echo 'Kubernetes cluster already initialized'
         fi
