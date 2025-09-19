@@ -57,8 +57,6 @@
     state: started
     enabled: true
   become: true
-    enabled: yes
-  become: true
 
 - name: Configure DNS resolver in resolvconf
   copy:
