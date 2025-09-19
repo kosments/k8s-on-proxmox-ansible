@@ -73,10 +73,44 @@ check_storage_space() {
         fi
     done
     
-    local available_gb=$(pvesm status -storage $VM_STORAGE | awk 'NR==2 {printf "%.0f", $4/1024/1024}')
+    log "Active VMs to create: ${active_vm_count}"
+    
+    # Check if storage exists and get space info
+    log "Checking storage '$VM_STORAGE' status..."
+    if ! pvesm status -storage $VM_STORAGE &>/dev/null; then
+        warn "Storage '$VM_STORAGE' not found or not accessible"
+        log "Available storages:"
+        pvesm status | while IFS= read -r line; do
+            log "  $line"
+        done
+        error "Storage '$VM_STORAGE' not found. Please check available storages above."
+    fi
+    
+    # Get storage information with error handling
+    local storage_output
+    storage_output=$(pvesm status -storage $VM_STORAGE 2>/dev/null)
+    if [ $? -ne 0 ]; then
+        error "Failed to get storage status for '$VM_STORAGE'"
+    fi
+    
+    log "Storage output:"
+    echo "$storage_output" | while IFS= read -r line; do
+        log "  $line"
+    done
+    
+    # Parse available space (convert from bytes to GB)
+    local available_gb
+    available_gb=$(echo "$storage_output" | awk 'NR==2 {printf "%.0f", $4/1024/1024}')
+    
+    # Validate the parsed value
+    if [[ ! "$available_gb" =~ ^[0-9]+$ ]]; then
+        warn "Could not parse available space, skipping storage check"
+        log "Storage space check skipped due to parsing error"
+        return 0
+    fi
+    
     local required_gb=$((active_vm_count * 100 + 50))  # 100GB per active VM + 50GB buffer
     
-    log "Active VMs to create: ${active_vm_count}"
     log "Available space: ${available_gb}GB"
     log "Required space: ${required_gb}GB"
     
