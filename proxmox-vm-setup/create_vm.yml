@@ -1,11 +1,23 @@
 ---
 # Download and create Ubuntu cloud image template
+- name: Check if Ubuntu cloud image exists
+  stat:
+    path: /var/lib/vz/template/iso/ubuntu-22.04-server-cloudimg-amd64.img
+  register: cloud_image
+
 - name: Download latest Ubuntu 22.04 cloud image
   get_url:
     url: https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img
     dest: /var/lib/vz/template/iso/ubuntu-22.04-server-cloudimg-amd64.img
     mode: '0644'
   become: true
+  when: not cloud_image.stat.exists
+
+- name: Check if VM exists
+  command: qm status {{ vm.id }}
+  register: vm_exists
+  ignore_errors: yes
+  changed_when: false
 
 - name: Create new VM
   command: >
@@ -15,6 +27,7 @@
     --cores 2 
     --net0 virtio,bridge=vmbr0
   become: true
+  when: vm_exists.rc != 0
 
 - name: Import disk
   command: >
@@ -22,6 +35,8 @@
     /var/lib/vz/template/iso/ubuntu-22.04-server-cloudimg-amd64.img 
     local-lvm
   become: true
+  register: disk_import
+  failed_when: disk_import.rc != 0 and 'already exists' not in disk_import.stderr
 
 - name: Configure VM basic settings
   command: >
@@ -40,14 +55,29 @@
     --nameserver 8.8.8.8
   become: true
 
-- name: Start VM
+- name: Check if VM is running
+  command: qm status {{ vm.id }}
+  register: vm_status
+  changed_when: false
+
+- name: Start VM if not running
   command: qm start {{ vm.id }}
   become: true
+  when: '"running" not in vm_status.stdout'
 
 - name: Wait for VM to be ready
   wait_for:
     host: "{{ vm.ip }}"
     port: 22
+    timeout: 300
+    state: started
+  register: wait_result
+  ignore_errors: yes
+
+- name: Show VM status
+  debug:
+    msg: "VM {{ vm.name }} ({{ vm.id }}) is ready and accessible via SSH at {{ vm.ip }}"
+  when: wait_result is success
     timeout: 300
     sleep: 5
   delegate_to: localhost

@@ -16,18 +16,28 @@
         ip: 192.168.10.103
 
   tasks:
+    - name: Check if VMs exist
+      command: qm status {{ item.id }}
+      register: vm_status
+      loop: "{{ vm_config }}"
+      ignore_errors: yes
+
     - name: Stop existing VMs if running
       command: qm stop {{ item.id }}
       loop: "{{ vm_config }}"
+      when: vm_status.results[ansible_loop.index0].rc == 0
       ignore_errors: yes
 
     - name: Wait for VMs to stop
       pause:
         seconds: 5
+      when: vm_status.changed
 
     - name: Destroy existing VMs
       command: qm destroy {{ item.id }}
       loop: "{{ vm_config }}"
+      when: vm_status.results[ansible_loop.index0].rc == 0
+      ignore_errors: yes
       ignore_errors: yes
 
     - name: Wait to ensure cleanup is complete
