@@ -254,7 +254,10 @@ setup_common() {
         
         # Disable swap (idempotent)
         swapoff -a || true
-        sed -i 's/^[^#]*swap.*$/#&/' /etc/fstab || true
+        # Comment out swap entries in fstab (more robust approach)
+        if grep -q '^[^#]*swap' /etc/fstab 2>/dev/null; then
+            sed -i.bak '/^[^#]*swap/s/^/#/' /etc/fstab || true
+        fi
         
         # Load kernel modules (idempotent)
         modprobe overlay || true
