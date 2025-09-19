@@ -18,6 +18,11 @@
   register: vm_exists
   ignore_errors: yes
   changed_when: false
+  failed_when: false
+
+- name: Display VM creation status
+  debug:
+    msg: "VM {{ vm.name }} ({{ vm.id }}) {{ 'already exists, skipping creation' if vm_exists.rc == 0 else 'will be created' }}"
 
 - name: Create new VM
   command: >
@@ -28,6 +33,13 @@
     --net0 virtio,bridge=vmbr0
   become: true
   when: vm_exists.rc != 0
+  register: create_result
+  failed_when: create_result.rc != 0 and 'already exists' not in create_result.stderr
+
+- name: Confirm VM creation
+  debug:
+    msg: "Successfully created VM {{ vm.name }} ({{ vm.id }})"
+  when: vm_exists.rc != 0 and create_result.rc == 0
 
 - name: Import disk
   command: >
@@ -75,6 +87,11 @@
     state: started
   register: wait_result
   ignore_errors: yes
+
+- name: Handle SSH connection timeout
+  debug:
+    msg: "Warning: SSH connection to {{ vm.name }} ({{ vm.ip }}) timed out. VM may still be booting."
+  when: wait_result is failed
 
 - name: Show VM status
   debug:

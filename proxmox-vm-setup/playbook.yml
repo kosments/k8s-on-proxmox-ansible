@@ -16,11 +16,45 @@
         ip: 192.168.10.103
 
   tasks:
+    - name: Verify Proxmox environment
+      block:
+        - name: Check if qm command is available
+          command: which qm
+          register: qm_check
+          failed_when: qm_check.rc != 0
+          changed_when: false
+
+        - name: Verify Proxmox node is accessible
+          command: qm list
+          register: qm_list
+          failed_when: qm_list.rc != 0
+          changed_when: false
+
+        - name: Display available storage
+          command: pvesm status
+          register: storage_status
+          failed_when: false
+          changed_when: false
+
+        - name: Show storage status
+          debug:
+            msg: "Proxmox environment verified successfully"
+
     - name: Check if VMs exist
       command: qm status {{ item.id }}
       register: vm_status
       loop: "{{ vm_config }}"
       ignore_errors: yes
+      failed_when: false
+      changed_when: false
+
+    - name: Display VM status summary
+      debug:
+        msg: |
+          VM Status Summary:
+          {% for result in vm_status.results %}
+          - {{ result.item.name }} (ID: {{ result.item.id }}): {{ 'EXISTS' if result.rc == 0 else 'NOT FOUND' }}
+          {% endfor %}
 
     - name: Stop existing VMs if running
       command: qm stop {{ item.id }}
@@ -29,6 +63,19 @@
         index_var: vm_index
       when: vm_status.results[vm_index].rc == 0
       ignore_errors: yes
+      register: stop_result
+
+    - name: Display stop results
+      debug:
+        msg: "Stopped VM {{ item.name }} ({{ item.id }})"
+      loop: "{{ vm_config }}"
+      loop_control:
+        index_var: vm_index
+      when: 
+        - vm_status.results[vm_index].rc == 0
+        - stop_result is defined
+        - stop_result.results[vm_index] is defined
+        - stop_result.results[vm_index].rc == 0
 
     - name: Wait for VMs to stop
       pause:
@@ -42,6 +89,19 @@
         index_var: vm_index
       when: vm_status.results[vm_index].rc == 0
       ignore_errors: yes
+      register: destroy_result
+
+    - name: Display destroy results
+      debug:
+        msg: "Destroyed VM {{ item.name }} ({{ item.id }})"
+      loop: "{{ vm_config }}"
+      loop_control:
+        index_var: vm_index
+      when: 
+        - vm_status.results[vm_index].rc == 0
+        - destroy_result is defined
+        - destroy_result.results[vm_index] is defined
+        - destroy_result.results[vm_index].rc == 0
 
     - name: Wait to ensure cleanup is complete
       pause:
@@ -52,3 +112,23 @@
       loop: "{{ vm_config }}"
       loop_control:
         loop_var: vm
+
+    - name: Final VM status check
+      command: qm status {{ item.id }}
+      register: final_status
+      loop: "{{ vm_config }}"
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Display deployment summary
+      debug:
+        msg: |
+          ========================================
+          VM Deployment Summary
+          ========================================
+          {% for result in final_status.results %}
+          {{ result.item.name }} (ID: {{ result.item.id }})
+            - IP: {{ result.item.ip }}
+            - Status: {{ 'RUNNING' if result.rc == 0 and 'running' in result.stdout else 'STOPPED/ERROR' }}
+          {% endfor %}
+          ========================================
