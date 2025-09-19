@@ -10,7 +10,7 @@ MASTER_IP="192.168.10.101"
 NODE1_IP="192.168.10.102"
 NODE2_IP="192.168.10.103"
 SSH_USER="ubuntu"
-SSH_KEY="~/.ssh/id_rsa"
+SSH_KEY="/root/.ssh/id_rsa"
 K8S_VERSION="1.28.2-1.1"
 POD_CIDR="10.244.0.0/16"
 
@@ -42,8 +42,32 @@ test_ssh() {
         log "SSH to $host: OK"
         return 0
     else
-        error "SSH to $host: FAILED"
-        return 1
+        warn "SSH to $host: FAILED - attempting to setup SSH key..."
+        setup_ssh_key $host
+        # Test again after key setup
+        if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$host "echo 'SSH OK'" >/dev/null 2>&1; then
+            log "SSH to $host: OK (after key setup)"
+            return 0
+        else
+            error "SSH to $host: STILL FAILED after key setup"
+            return 1
+        fi
+    fi
+}
+
+# Setup SSH key for a host
+setup_ssh_key() {
+    local host=$1
+    log "Setting up SSH key for $host..."
+    
+    # Try password authentication to copy the key
+    if command -v sshpass &> /dev/null; then
+        log "Using sshpass to copy SSH key..."
+        sshpass -p "ubuntu" ssh-copy-id -o StrictHostKeyChecking=no -i ${SSH_KEY}.pub $SSH_USER@$host 2>/dev/null || true
+    else
+        warn "sshpass not available. Manual SSH key setup may be required."
+        log "Please run: ssh-copy-id -i ${SSH_KEY}.pub $SSH_USER@$host"
+        log "Or ensure the VMs were created with the SSH key already installed."
     fi
 }
 
@@ -191,9 +215,47 @@ verify_cluster() {
     "
 }
 
+# Check prerequisites
+check_prerequisites() {
+    log "Checking prerequisites..."
+    
+    # Check if SSH key exists
+    if [ ! -f "$SSH_KEY" ]; then
+        warn "SSH key not found at $SSH_KEY"
+        log "Generating SSH key pair..."
+        ssh-keygen -t rsa -b 2048 -f "$SSH_KEY" -N "" -q
+        log "SSH key generated. You may need to copy it to the VMs:"
+        log "ssh-copy-id -i ${SSH_KEY}.pub $SSH_USER@$MASTER_IP"
+        log "ssh-copy-id -i ${SSH_KEY}.pub $SSH_USER@$NODE1_IP"
+        log "ssh-copy-id -i ${SSH_KEY}.pub $SSH_USER@$NODE2_IP"
+    fi
+    
+    # Check if required commands are available
+    for cmd in ssh scp; do
+        if ! command -v $cmd &> /dev/null; then
+            error "$cmd command not found. Please install OpenSSH client."
+        fi
+    done
+    
+    # Install sshpass if not available (for automatic SSH key setup)
+    if ! command -v sshpass &> /dev/null; then
+        log "Installing sshpass for automatic SSH key setup..."
+        if command -v apt-get &> /dev/null; then
+            apt-get update && apt-get install -y sshpass
+        else
+            warn "sshpass not available and cannot be installed automatically."
+        fi
+    fi
+    
+    log "Prerequisites check completed"
+}
+
 # Main execution
 main() {
     log "Starting Kubernetes cluster setup..."
+    
+    # Check prerequisites
+    check_prerequisites
     
     # Test SSH connectivity to all nodes
     test_ssh $MASTER_IP
@@ -232,9 +294,9 @@ main() {
     log "To use kubectl: export KUBECONFIG=\$PWD/kubeconfig"
 }
 
-# Check if running as root
+# Check if running as root (allow root in Proxmox environment)
 if [[ $EUID -eq 0 ]]; then
-   error "This script should not be run as root"
+   warn "Running as root user. Ensure SSH keys are properly configured."
 fi
 
 # Run main function
