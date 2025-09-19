@@ -367,10 +367,10 @@ install_cni() {
         export KUBECONFIG=/etc/kubernetes/admin.conf
         # Check if Flannel is already installed (idempotent)
         if ! kubectl get pods -n kube-flannel &>/dev/null; then
-            log 'Installing Flannel CNI...'
+            echo 'Installing Flannel CNI...'
             kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
         else
-            log 'Flannel CNI already installed'
+            echo 'Flannel CNI already installed'
         fi
     "
     
