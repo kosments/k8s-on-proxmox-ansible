@@ -203,6 +203,16 @@
 # Kubernetes Setup
 
 # Add Kubernetes apt repository
+- name: Remove all Kubernetes repository files and keys
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /etc/apt/sources.list.d/kubernetes.list
+    - /etc/apt/keyrings/kubernetes-apt-keyring.asc
+    - /etc/apt/trusted.gpg.d/kubernetes.gpg
+  become: true
+
 - name: Create apt keyrings directory
   file:
     path: /etc/apt/keyrings
@@ -210,33 +220,18 @@
     mode: '0755'
   become: true
 
-- name: Remove old Kubernetes repository files
-  file:
-    path: "{{ item }}"
-    state: absent
-  with_items:
-    - /etc/apt/sources.list.d/kubernetes.list
-    - /etc/apt/keyrings/kubernetes-apt-keyring.asc
-  become: true
-
-- name: Download Kubernetes apt-key
-  get_url:
-    url: https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key
-    dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
-    mode: '0644'
-    force: true
+- name: Download Kubernetes signing key
+  shell: |
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
   become: true
   retries: 5
   delay: 10
   register: key_download
   until: key_download is success
-  environment:
-    http_proxy: ""
-    https_proxy: ""
 
-- name: Add Kubernetes apt repository
+- name: Add Kubernetes repository
   apt_repository:
-    repo: deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /
+    repo: deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /
     state: present
     filename: kubernetes
     update_cache: yes
