@@ -32,21 +32,42 @@
     - "LC_ALL=en_US.UTF-8"
 
 # Configure DNS and networking settings
-- name: Install resolvconf
+- name: Install required networking packages
   apt:
-    name: resolvconf
+    name:
+      - resolvconf
+      - systemd-resolved
     state: present
+  become: true
+
+- name: Configure systemd-resolved
+  copy:
+    content: |
+      [Resolve]
+      DNS=8.8.8.8 8.8.4.4
+      FallbackDNS=1.1.1.1
+      DNSStubListener=yes
+    dest: /etc/systemd/resolved.conf
+    mode: '0644'
+  become: true
+  notify: restart systemd-resolved
+
+- name: Enable systemd-resolved
+  systemd:
+    name: systemd-resolved
+    state: started
+    enabled: yes
   become: true
 
 - name: Configure DNS resolver in resolvconf
   copy:
     content: |
-      nameserver 8.8.8.8
-      nameserver 8.8.4.4
-    dest: /etc/resolvconf/resolv.conf.d/base
+      nameserver 127.0.0.53
+      options edns0 trust-ad
+      search .
+    dest: /etc/resolv.conf
     mode: '0644'
   become: true
-  notify: update resolvconf
 
 - name: Configure systemd-resolved
   copy:
@@ -220,18 +241,39 @@
     mode: '0755'
   become: true
 
+- name: Clean up old Kubernetes keys and repositories
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /etc/apt/sources.list.d/kubernetes.list
+    - /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    - /etc/apt/trusted.gpg.d/kubernetes.gpg
+  become: true
+
+- name: Create keyrings directory
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+  become: true
+
 - name: Download Kubernetes signing key
-  shell: |
-    curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  get_url:
+    url: https://dl.k8s.io/apt/doc/apt-key.gpg
+    dest: /etc/apt/keyrings/kubernetes.gpg
+    mode: '0644'
+    force: true
   become: true
   retries: 5
   delay: 10
-  register: key_download
-  until: key_download is success
+  environment:
+    http_proxy: ""
+    https_proxy: ""
 
 - name: Add Kubernetes repository
   apt_repository:
-    repo: deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /
+    repo: deb [signed-by=/etc/apt/keyrings/kubernetes.gpg] https://apt.kubernetes.io/ kubernetes-xenial main
     state: present
     filename: kubernetes
     update_cache: yes

@@ -19,10 +19,13 @@
   command: >
     qm set {{ vm.id }}
     --ipconfig0 ip={{ vm.ip }}/24,gw=192.168.10.1
+    --nameserver 8.8.8.8
+    --searchdomain ""
     --ciuser ubuntu
     --cipassword ubuntu
     --sshkeys ~/.ssh/id_rsa.pub
     --agent 1
+    --onboot 1
 
 - name: Create cloud-init user data file for SSH configuration
   copy:
@@ -39,16 +42,37 @@
         - openssh-server
       
       runcmd:
-        # SSH設定
+        # SSH設定の確実な適用
+        - systemctl stop ssh
+        - cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+        - echo "Port 22" > /etc/ssh/sshd_config
+        - echo "Protocol 2" >> /etc/ssh/sshd_config
+        - echo "HostKey /etc/ssh/ssh_host_rsa_key" >> /etc/ssh/sshd_config
+        - echo "HostKey /etc/ssh/ssh_host_ecdsa_key" >> /etc/ssh/sshd_config
+        - echo "HostKey /etc/ssh/ssh_host_ed25519_key" >> /etc/ssh/sshd_config
+        - echo "PermitRootLogin no" >> /etc/ssh/sshd_config
+        - echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config
+        - echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
+        - echo "ChallengeResponseAuthentication no" >> /etc/ssh/sshd_config
+        - echo "UsePAM yes" >> /etc/ssh/sshd_config
+        - echo "X11Forwarding yes" >> /etc/ssh/sshd_config
+        - echo "PrintMotd no" >> /etc/ssh/sshd_config
+        - chmod 600 /etc/ssh/sshd_config
+        
+        # SSHキーの確認と修正
+        - mkdir -p /home/ubuntu/.ssh
+        - chmod 700 /home/ubuntu/.ssh
+        - chown ubuntu:ubuntu /home/ubuntu/.ssh
+        
+        # SSHサービスの開始
         - systemctl enable ssh
         - systemctl start ssh
-        - sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
-        - sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
         
-        # ファイアウォール設定
-        - ufw default deny incoming
+        # ファイアウォール設定（SSHを最初に許可）
+        - ufw --force reset
+        - ufw allow 22/tcp  # SSHを最初に許可
         - ufw default allow outgoing
-        - ufw allow 22/tcp  # SSH
+        - ufw default deny incoming
         - ufw allow 6443/tcp  # Kubernetes API server
         - ufw allow 10250/tcp  # Kubelet API
         - ufw allow 10255/tcp  # Read-only Kubelet API
@@ -59,8 +83,11 @@
         - ufw allow 8472/udp  # Flannel VXLAN
         - ufw --force enable
         
-        # サービス再起動
+        # 権限とサービスの最終確認
+        - chmod 755 /home/ubuntu
         - systemctl restart ssh
+        - netstat -tulpn | grep 22 > /tmp/ssh-port-check.log
+        - ufw status > /tmp/ufw-status.log
         - echo "SSH and firewall configuration completed" > /tmp/ssh-setup.log
     dest: "/var/lib/vz/snippets/user-data-{{ vm.name }}.yml"
     mode: '0644'
