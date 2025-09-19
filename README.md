@@ -88,3 +88,37 @@ ssh -v <user>@<VM_IP>
 ping <VM_IP>
 # まず ICMP が通るか確認すると SSH の接続可否の判断がしやすくなります
 ```
+
+## ホストキーの管理
+
+VMを再作成した場合や、SSHホストキーが変更された場合の対処方法：
+
+### 1. 特定のホストキーの削除
+
+```bash
+# 特定のIPアドレスのホストキーを削除
+ssh-keygen -f "~/.ssh/known_hosts" -R "192.168.10.101"
+ssh-keygen -f "~/.ssh/known_hosts" -R "192.168.10.102"
+ssh-keygen -f "~/.ssh/known_hosts" -R "192.168.10.103"
+```
+
+### 2. 既知のホストキーをすべて削除
+
+```bash
+# すべてのホストキーを削除（注意: すべてのホストの情報が削除されます）
+rm ~/.ssh/known_hosts
+```
+
+### 3. SSHの初回接続時に自動的にホストキーを受け入れる
+
+```bash
+# StrictHostKeyCheckingをnoに設定して接続
+ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.101
+```
+
+### 4. 現在のホストキーの確認
+
+```bash
+# ホストキーのフィンガープリントを表示
+ssh-keygen -l -f /etc/ssh/ssh_host_ed25519_key.pub
+```

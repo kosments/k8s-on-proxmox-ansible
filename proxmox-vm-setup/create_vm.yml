@@ -42,12 +42,18 @@
         - openssh-server
       
       runcmd:
-        # SSH設定の確実な適用
+        # SSH設定の確実な適用（セキュリティチェックを無効化）
         - systemctl stop ssh
         - cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
         - echo "Port 22" > /etc/ssh/sshd_config
         - echo "Protocol 2" >> /etc/ssh/sshd_config
         - echo "HostKey /etc/ssh/ssh_host_rsa_key" >> /etc/ssh/sshd_config
+        - echo "StrictHostKeyChecking no" >> /etc/ssh/sshd_config
+        - echo "UserKnownHostsFile /dev/null" >> /etc/ssh/sshd_config
+        - echo "HostKeyAlgorithms +ssh-rsa" >> /etc/ssh/sshd_config
+        - echo "PubkeyAcceptedKeyTypes +ssh-rsa" >> /etc/ssh/sshd_config
+        - chmod 600 /etc/ssh/sshd_config
+        - systemctl restart ssh
         - echo "HostKey /etc/ssh/ssh_host_ecdsa_key" >> /etc/ssh/sshd_config
         - echo "HostKey /etc/ssh/ssh_host_ed25519_key" >> /etc/ssh/sshd_config
         - echo "PermitRootLogin no" >> /etc/ssh/sshd_config
