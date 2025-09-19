@@ -1,14 +1,21 @@
 #!/bin/bash
 
 # Proxmox VM Creation Script
-# Creates 3 VMs for Kubernetes cluster sequentially with adequate disk space
+# Creates 4 VMs for Kubernetes cluster sequentially with adequate disk space
+# VM 102 is temporarily skipped
 
 set -e
 
 # Configuration
-VM_IDS=(101 102 103)
-VM_NAMES=("k8s-master" "k8s-node1" "k8s-node2")
-VM_IPS=("192.168.10.101" "192.168.10.102" "192.168.10.103")
+VM_IDS=(101 102 103 104)
+VM_NAMES=("k8s-master" "k8s-node1" "k8s-node2" "k8s-node3")
+VM_IPS=("192.168.10.101" "192.168.10.102" "192.168.10.103" "192.168.10.104")
+
+# Skip flags - set to true to skip VM creation
+SKIP_VM_101=false
+SKIP_VM_102=true   # Temporarily skip VM 102
+SKIP_VM_103=false
+SKIP_VM_104=false  # New node 3
 VM_MEMORY=4096  # 4GB RAM (increased from 2GB)
 VM_CORES=2
 VM_DISK_SIZE="100G"  # 100GB disk for ample space
@@ -57,9 +64,19 @@ check_proxmox() {
 check_storage_space() {
     log "Checking available storage space..."
     
-    local available_gb=$(pvesm status -storage $VM_STORAGE | awk 'NR==2 {printf "%.0f", $4/1024/1024}')
-    local required_gb=$((${#VM_IDS[@]} * 100 + 50))  # 100GB per VM + 50GB buffer
+    # Count active VMs (non-skipped)
+    local active_vm_count=0
+    for i in "${!VM_IDS[@]}"; do
+        local vm_id=${VM_IDS[$i]}
+        if ! should_skip_vm $vm_id; then
+            ((active_vm_count++))
+        fi
+    done
     
+    local available_gb=$(pvesm status -storage $VM_STORAGE | awk 'NR==2 {printf "%.0f", $4/1024/1024}')
+    local required_gb=$((active_vm_count * 100 + 50))  # 100GB per active VM + 50GB buffer
+    
+    log "Active VMs to create: ${active_vm_count}"
     log "Available space: ${available_gb}GB"
     log "Required space: ${required_gb}GB"
     
@@ -95,6 +112,18 @@ setup_ssh_key() {
     fi
 }
 
+# Check if VM should be skipped
+should_skip_vm() {
+    local vm_id=$1
+    case $vm_id in
+        101) [ "$SKIP_VM_101" = true ] && return 0 ;;
+        102) [ "$SKIP_VM_102" = true ] && return 0 ;;
+        103) [ "$SKIP_VM_103" = true ] && return 0 ;;
+        104) [ "$SKIP_VM_104" = true ] && return 0 ;;
+    esac
+    return 1
+}
+
 # Check if VM exists (idempotent check)
 vm_exists() {
     local vm_id=$1
@@ -109,6 +138,12 @@ vm_exists() {
 cleanup_vm() {
     local vm_id=$1
     local vm_name=$2
+    
+    # Check if VM should be skipped
+    if should_skip_vm $vm_id; then
+        log "Skipping cleanup for VM $vm_id ($vm_name) - marked as skip"
+        return 0
+    fi
     
     log "Checking if VM $vm_id ($vm_name) exists..."
     
@@ -137,6 +172,12 @@ create_vm() {
     local vm_id=$1
     local vm_name=$2
     local vm_ip=$3
+    
+    # Check if VM should be skipped
+    if should_skip_vm $vm_id; then
+        log "Skipping creation for VM $vm_id ($vm_name) - marked as skip"
+        return 0
+    fi
     
     log "Creating VM $vm_id ($vm_name) with IP $vm_ip..."
     
@@ -220,6 +261,12 @@ verify_vms() {
         local vm_name=${VM_NAMES[$i]}
         local vm_ip=${VM_IPS[$i]}
         
+        # Skip if VM is marked as skip
+        if should_skip_vm $vm_id; then
+            log "Skipping verification for VM $vm_id ($vm_name) - marked as skip"
+            continue
+        fi
+        
         log "Testing VM $vm_id ($vm_name) at $vm_ip..."
         
         if timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PasswordAuthentication=no $SSH_USER@$vm_ip "echo 'SSH OK'" &>/dev/null; then
@@ -242,6 +289,12 @@ main() {
     log "  CPU cores: ${VM_CORES} per VM"
     log "  Disk size: ${VM_DISK_SIZE} per VM (ample space for Kubernetes)"
     log "  Storage: ${VM_STORAGE}"
+    log ""
+    log "VM Skip Status:"
+    log "  VM 101 (k8s-master): $([ "$SKIP_VM_101" = true ] && echo "SKIP" || echo "CREATE")"
+    log "  VM 102 (k8s-node1):  $([ "$SKIP_VM_102" = true ] && echo "SKIP" || echo "CREATE")"
+    log "  VM 103 (k8s-node2):  $([ "$SKIP_VM_103" = true ] && echo "SKIP" || echo "CREATE")"
+    log "  VM 104 (k8s-node3):  $([ "$SKIP_VM_104" = true ] && echo "SKIP" || echo "CREATE")"
     
     # Check environment
     check_proxmox
@@ -286,7 +339,15 @@ main() {
     log ""
     log "Summary:"
     for i in "${!VM_IDS[@]}"; do
-        log "  ${VM_NAMES[$i]} (ID: ${VM_IDS[$i]}) - IP: ${VM_IPS[$i]} - Disk: ${VM_DISK_SIZE} - RAM: ${VM_MEMORY}MB"
+        local vm_id=${VM_IDS[$i]}
+        local vm_name=${VM_NAMES[$i]}
+        local vm_ip=${VM_IPS[$i]}
+        
+        if should_skip_vm $vm_id; then
+            log "  ${vm_name} (ID: ${vm_id}) - SKIPPED"
+        else
+            log "  ${vm_name} (ID: ${vm_id}) - IP: ${vm_ip} - Disk: ${VM_DISK_SIZE} - RAM: ${VM_MEMORY}MB"
+        fi
     done
     log ""
     log "You can now proceed with Kubernetes cluster setup:"
