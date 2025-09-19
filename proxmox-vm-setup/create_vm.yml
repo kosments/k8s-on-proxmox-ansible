@@ -1,53 +1,56 @@
-- name: Clone base VM for {{ vm.name }}
+---
+# Download and create Ubuntu cloud image template
+- name: Download latest Ubuntu 22.04 cloud image
+  get_url:
+    url: https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img
+    dest: /var/lib/vz/template/iso/ubuntu-22.04-server-cloudimg-amd64.img
+    mode: '0644'
+  become: true
+
+- name: Create new VM
   command: >
-    qm clone 9000 {{ vm.id }}
-    --name {{ vm.name }}
-    --full true
-    --storage local-lvm
+    qm create {{ vm.id }} 
+    --name {{ vm.name }} 
+    --memory 2048 
+    --cores 2 
+    --net0 virtio,bridge=vmbr0
+  become: true
 
-- name: Resize disk for {{ vm.name }}
+- name: Import disk
   command: >
-    qm resize {{ vm.id }} scsi0 +10G
+    qm importdisk {{ vm.id }} 
+    /var/lib/vz/template/iso/ubuntu-22.04-server-cloudimg-amd64.img 
+    local-lvm
+  become: true
 
-- name: Create snippets directory if it doesn't exist
-  file:
-    path: /var/lib/vz/snippets
-    state: directory
-    mode: '0755'
-
-- name: Set cloud-init and network configuration for {{ vm.name }}
+- name: Configure VM basic settings
   command: >
     qm set {{ vm.id }}
+    --scsihw virtio-scsi-pci
+    --scsi0 local-lvm:vm-{{ vm.id }}-disk-0
+    --boot c
+    --bootdisk scsi0
+    --ide2 local-lvm:cloudinit
+    --serial0 socket
+    --vga serial0
+    --ciuser ubuntu
+    --cipassword "{{ vm_password | default('ubuntu') }}"
+    --sshkeys ~/.ssh/id_rsa.pub
     --ipconfig0 ip={{ vm.ip }}/24,gw=192.168.10.1
     --nameserver 8.8.8.8
-    --searchdomain ""
-    --ciuser ubuntu
-    --cipassword ubuntu
-    --sshkeys ~/.ssh/id_rsa.pub
-    --agent 1
-    --onboot 1
+  become: true
 
-- name: Create cloud-init user data file for SSH configuration
-  copy:
-    content: |
-      #cloud-config
-      users:
-        - name: ubuntu
-          sudo: ALL=(ALL) NOPASSWD:ALL
-          shell: /bin/bash
-          ssh_authorized_keys:
-            - "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
-      
-      packages:
-        - openssh-server
-      
-      runcmd:
-        # SSH設定の確実な適用（セキュリティチェックを無効化）
-        - systemctl stop ssh
-        - cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
-        - echo "Port 22" > /etc/ssh/sshd_config
-        - echo "Protocol 2" >> /etc/ssh/sshd_config
-        - echo "HostKey /etc/ssh/ssh_host_rsa_key" >> /etc/ssh/sshd_config
+- name: Start VM
+  command: qm start {{ vm.id }}
+  become: true
+
+- name: Wait for VM to be ready
+  wait_for:
+    host: "{{ vm.ip }}"
+    port: 22
+    timeout: 300
+    sleep: 5
+  delegate_to: localhost
         - echo "StrictHostKeyChecking no" >> /etc/ssh/sshd_config
         - echo "UserKnownHostsFile /dev/null" >> /etc/ssh/sshd_config
         - echo "HostKeyAlgorithms +ssh-rsa" >> /etc/ssh/sshd_config

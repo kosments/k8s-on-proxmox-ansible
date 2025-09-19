@@ -1,35 +1,50 @@
 ---
-# Common tasks for all Kubernetes nodes
+---
+# Basic VM setup tasks
 
-# Fix locale settings first
-- name: Install locales package
+# Update system and install essential packages
+- name: Update apt cache and upgrade system
   apt:
-    name: locales
-    state: present
     update_cache: yes
+    upgrade: yes
+  become: true
 
-- name: Generate en_US.UTF-8 locale
-  locale_gen:
-    name: en_US.UTF-8
+- name: Install essential packages
+  apt:
+    name: 
+      - openssh-server
+      - python3
+      - python3-pip
     state: present
+  become: true
 
-- name: Set system locale to en_US.UTF-8
-  copy:
-    content: |
-      LANG=en_US.UTF-8
-      LC_ALL=en_US.UTF-8
-    dest: /etc/default/locale
-    mode: '0644'
-  notify: reload locale
+# Configure SSH
+- name: Ensure SSH service is running
+  systemd:
+    name: ssh
+    state: started
+    enabled: yes
+  become: true
 
-- name: Set environment locale variables
+- name: Configure SSH for password authentication
   lineinfile:
-    path: /etc/environment
-    line: "{{ item }}"
-    create: yes
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    backup: yes
   with_items:
-    - "LANG=en_US.UTF-8"
-    - "LC_ALL=en_US.UTF-8"
+    - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication yes' }
+    - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin yes' }
+  notify: restart ssh
+  become: true
+
+# Set default password for ubuntu user (for testing only)
+- name: Set ubuntu user password
+  user:
+    name: ubuntu
+    password: "{{ 'ubuntu' | password_hash('sha512') }}"
+    state: present
+  become: true
 
 # Configure DNS and networking settings
 - name: Install resolvconf package

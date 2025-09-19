@@ -1,18 +1,15 @@
-vm_template_id: 9000
-vm_base_id: 101
-vm_names:
-  - k8s-master
-  - k8s-node1
-  - k8s-node2
-vm_ip_suffixes:
-  - 101
-  - 102
-  - 103
-ip_base: "192.168.10"
-cidr: "/24"
-gateway: "192.168.10.1"
-bridge: "vmbr0"
-ciuser: "ubuntu"
-sshkey_path: "~/.ssh/id_rsa.pub"
-memory: 2048
-cores: 2
+---
+# VM configuration
+vms:
+  - name: k8s-master
+    id: 101
+    ip: 192.168.10.101
+  - name: k8s-node1
+    id: 102
+    ip: 192.168.10.102
+  - name: k8s-node2
+    id: 103
+    ip: 192.168.10.103
+
+# Common settings
+vm_password: "ubuntu"  # デフォルトパスワード（本番環境では変更してください）
