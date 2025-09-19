@@ -58,21 +58,82 @@ test_ssh() {
         log "SSH to $host: OK"
         return 0
     else
-        warn "SSH to $host: FAILED - attempting to setup SSH key..."
-        setup_ssh_key $host
+        warn "SSH to $host: FAILED - running diagnosis..."
         
-        # Wait a moment for SSH service to be ready
-        sleep 5
+        # Run diagnosis first
+        if ! diagnose_ssh $host; then
+            warn "VM $host appears to have connectivity issues. Waiting 30 seconds and retrying..."
+            sleep 30
+            
+            # Try diagnosis again
+            if ! diagnose_ssh $host; then
+                error "VM $host is not accessible. Please check VM status manually with: qm status <vm_id>"
+                return 1
+            fi
+        fi
         
-        # Test again after key setup
-        if ssh $ssh_opts -i $SSH_KEY $SSH_USER@$host "echo 'SSH OK'" >/dev/null 2>&1; then
-            log "SSH to $host: OK (after key setup)"
-            return 0
+        # Try to setup SSH key
+        log "Attempting to setup SSH key..."
+        if setup_ssh_key $host; then
+            log "SSH key setup successful, testing connection again..."
+            sleep 5
+            
+            # Test again after key setup
+            if ssh $ssh_opts -i $SSH_KEY $SSH_USER@$host "echo 'SSH OK'" >/dev/null 2>&1; then
+                log "SSH to $host: OK (after key setup)"
+                return 0
+            else
+                warn "SSH key authentication still failing, trying password authentication test..."
+                if sshpass -p "ubuntu" ssh $ssh_opts $SSH_USER@$host "echo 'SSH OK'" >/dev/null 2>&1; then
+                    warn "Password authentication works but key authentication doesn't. There may be an issue with the SSH key setup."
+                else
+                    warn "Both key and password authentication are failing."
+                fi
+                error "SSH to $host: STILL FAILED after key setup"
+                return 1
+            fi
         else
-            error "SSH to $host: STILL FAILED after key setup"
+            error "SSH key setup failed for $host"
             return 1
         fi
     fi
+}
+
+# Diagnose SSH connection issues
+diagnose_ssh() {
+    local host=$1
+    log "Diagnosing SSH connection issues for $host..."
+    
+    # Test basic connectivity
+    log "Testing basic connectivity (ping)..."
+    if ping -c 1 -W 5 $host &>/dev/null; then
+        log "✓ Host $host is reachable via ping"
+    else
+        warn "✗ Host $host is not reachable via ping"
+        return 1
+    fi
+    
+    # Test SSH port
+    log "Testing SSH port (22)..."
+    if timeout 5 nc -z $host 22 &>/dev/null; then
+        log "✓ SSH port 22 is open on $host"
+    else
+        warn "✗ SSH port 22 is not accessible on $host"
+        log "VM may still be booting or SSH service is not running"
+        return 1
+    fi
+    
+    # Test SSH banner
+    log "Testing SSH service response..."
+    local ssh_banner=$(timeout 5 nc $host 22 </dev/null 2>/dev/null | head -1)
+    if [[ $ssh_banner == *"SSH"* ]]; then
+        log "✓ SSH service is responding: $ssh_banner"
+    else
+        warn "✗ SSH service is not responding properly"
+        return 1
+    fi
+    
+    return 0
 }
 
 # Setup SSH key for a host
@@ -80,14 +141,28 @@ setup_ssh_key() {
     local host=$1
     log "Setting up SSH key for $host..."
     
+    # First, diagnose the connection
+    if ! diagnose_ssh $host; then
+        warn "SSH diagnosis failed for $host, skipping key setup"
+        return 1
+    fi
+    
     # Try password authentication to copy the key
     if command -v sshpass &> /dev/null; then
         log "Using sshpass to copy SSH key..."
-        sshpass -p "ubuntu" ssh-copy-id -o StrictHostKeyChecking=no -i ${SSH_KEY}.pub $SSH_USER@$host 2>/dev/null || true
+        local ssh_copy_opts="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10"
+        if sshpass -p "ubuntu" ssh-copy-id $ssh_copy_opts -i ${SSH_KEY}.pub $SSH_USER@$host 2>/dev/null; then
+            log "✓ SSH key successfully copied to $host"
+            return 0
+        else
+            warn "✗ Failed to copy SSH key to $host using password authentication"
+            return 1
+        fi
     else
         warn "sshpass not available. Manual SSH key setup may be required."
         log "Please run: ssh-copy-id -i ${SSH_KEY}.pub $SSH_USER@$host"
         log "Or ensure the VMs were created with the SSH key already installed."
+        return 1
     fi
 }
 
@@ -401,6 +476,26 @@ main() {
     
     # Clear SSH host keys to avoid conflicts from VM recreation
     clear_ssh_host_keys
+    
+    # Check VM status first
+    log "Checking VM status on Proxmox..."
+    for vm_id in 101 102 103; do
+        if qm status $vm_id &>/dev/null; then
+            local status=$(qm status $vm_id | grep -o 'status: [^,]*' | cut -d' ' -f2)
+            log "VM $vm_id status: $status"
+            if [ "$status" != "running" ]; then
+                warn "VM $vm_id is not running. Starting VM..."
+                qm start $vm_id || warn "Failed to start VM $vm_id"
+                sleep 10
+            fi
+        else
+            error "VM $vm_id does not exist. Please create VMs first using vm-setup/create-vms.sh"
+        fi
+    done
+    
+    # Wait for VMs to be fully ready
+    log "Waiting 30 seconds for VMs to be fully ready..."
+    sleep 30
     
     # Test SSH connectivity to all nodes
     test_ssh $MASTER_IP

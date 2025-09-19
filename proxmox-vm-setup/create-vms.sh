@@ -11,7 +11,7 @@ VM_NAMES=("k8s-master" "k8s-node1" "k8s-node2")
 VM_IPS=("192.168.10.101" "192.168.10.102" "192.168.10.103")
 VM_MEMORY=4096  # 4GB RAM (increased from 2GB)
 VM_CORES=2
-VM_DISK_SIZE="20G"  # 20GB disk (NEW!)
+VM_DISK_SIZE="100G"  # 100GB disk for ample space
 VM_STORAGE="local-lvm"
 BRIDGE="vmbr0"
 GATEWAY="192.168.10.1"
@@ -58,7 +58,7 @@ check_storage_space() {
     log "Checking available storage space..."
     
     local available_gb=$(pvesm status -storage $VM_STORAGE | awk 'NR==2 {printf "%.0f", $4/1024/1024}')
-    local required_gb=$((${#VM_IDS[@]} * 20 + 10))  # 20GB per VM + 10GB buffer
+    local required_gb=$((${#VM_IDS[@]} * 100 + 50))  # 100GB per VM + 50GB buffer
     
     log "Available space: ${available_gb}GB"
     log "Required space: ${required_gb}GB"
@@ -194,6 +194,16 @@ create_vm() {
         if timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PasswordAuthentication=no $SSH_USER@$vm_ip "echo 'SSH OK'" &>/dev/null; then
             log "VM $vm_id ($vm_name) is ready and accessible via SSH!"
             
+            # Configure firewall to allow SSH from anywhere
+            log "Configuring firewall for SSH access on VM $vm_id..."
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $SSH_USER@$vm_ip "
+                sudo ufw --force enable
+                sudo ufw allow ssh
+                sudo ufw allow 22/tcp
+                sudo ufw reload
+                sudo ufw status
+            " || warn "Failed to configure firewall on VM $vm_id"
+            
             # Show disk usage
             log "Checking disk space on VM $vm_id..."
             ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $SSH_USER@$vm_ip "df -h /" || true
@@ -208,6 +218,32 @@ create_vm() {
     
     warn "VM $vm_id may not be fully ready, but continuing..."
     return 0
+}
+
+# Configure firewall on existing VMs
+configure_firewall_all() {
+    log "Configuring firewall on all VMs..."
+    
+    for i in "${!VM_IDS[@]}"; do
+        local vm_id=${VM_IDS[$i]}
+        local vm_name=${VM_NAMES[$i]}
+        local vm_ip=${VM_IPS[$i]}
+        
+        log "Configuring firewall on VM $vm_id ($vm_name)..."
+        
+        if timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PasswordAuthentication=no $SSH_USER@$vm_ip "echo 'SSH OK'" &>/dev/null; then
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $SSH_USER@$vm_ip "
+                sudo ufw --force enable
+                sudo ufw allow ssh
+                sudo ufw allow 22/tcp
+                sudo ufw reload
+                echo 'Firewall status for $vm_name:'
+                sudo ufw status
+            " && log "✓ Firewall configured on VM $vm_id ($vm_name)" || warn "✗ Failed to configure firewall on VM $vm_id"
+        else
+            warn "✗ Cannot connect to VM $vm_id ($vm_name) for firewall configuration"
+        fi
+    done
 }
 
 # Verify all VMs are accessible and show their disk usage
@@ -235,11 +271,20 @@ verify_vms() {
 
 # Main execution
 main() {
+    # Check for special commands
+    if [ "$1" = "firewall" ]; then
+        log "Configuring firewall on existing VMs..."
+        check_proxmox
+        configure_firewall_all
+        log "Firewall configuration completed!"
+        exit 0
+    fi
+    
     log "Starting Proxmox VM creation for Kubernetes cluster..."
     log "Configuration:"
     log "  Memory: ${VM_MEMORY}MB per VM"
     log "  CPU cores: ${VM_CORES} per VM"
-    log "  Disk size: ${VM_DISK_SIZE} per VM"
+    log "  Disk size: ${VM_DISK_SIZE} per VM (ample space for Kubernetes)"
     log "  Storage: ${VM_STORAGE}"
     
     # Check environment
@@ -292,6 +337,23 @@ main() {
     log "  cd ../k8s-setup"
     log "  ./setup-k8s-cluster.sh"
 }
+
+# Show usage information
+show_usage() {
+    echo "Usage:"
+    echo "  $0                 - Create all VMs with firewall configuration"
+    echo "  $0 firewall        - Configure firewall on existing VMs only"
+    echo ""
+    echo "Examples:"
+    echo "  ./create-vms.sh                # Create all VMs"
+    echo "  ./create-vms.sh firewall       # Configure firewall on existing VMs"
+}
+
+# Check for help
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    show_usage
+    exit 0
+fi
 
 # Run main function
 main "$@"
