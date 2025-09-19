@@ -60,62 +60,6 @@ check_proxmox() {
     log "Proxmox VE environment detected"
 }
 
-# Check available storage space
-check_storage_space() {
-    log "Checking available storage space..."
-    
-    # Count active VMs (non-skipped)
-    local active_vm_count=0
-    for i in "${!VM_IDS[@]}"; do
-        local vm_id=${VM_IDS[$i]}
-        if ! should_skip_vm $vm_id; then
-            ((active_vm_count++))
-        fi
-    done
-    
-    log "Active VMs to create: ${active_vm_count}"
-    
-    # Simple storage check with timeout
-    log "Testing storage command..."
-    if timeout 10 pvesm status -storage $VM_STORAGE >/dev/null 2>&1; then
-        log "Storage '$VM_STORAGE' is accessible"
-        
-        # Get storage information
-        local storage_output
-        storage_output=$(timeout 10 pvesm status -storage $VM_STORAGE 2>/dev/null)
-        local cmd_result=$?
-        
-        if [ $cmd_result -eq 0 ] && [ -n "$storage_output" ]; then
-            log "Storage command successful"
-            
-            # Parse available space
-            local available_gb
-            available_gb=$(echo "$storage_output" | awk 'NR==2 {printf "%.0f", $4/1024/1024}' 2>/dev/null)
-            
-            if [[ "$available_gb" =~ ^[0-9]+$ ]] && [ "$available_gb" -gt 0 ]; then
-                local required_gb=$((active_vm_count * 100 + 50))
-                log "Available space: ${available_gb}GB"
-                log "Required space: ${required_gb}GB"
-                
-                if [ "$available_gb" -lt "$required_gb" ]; then
-                    warn "Low storage space. Available: ${available_gb}GB, Required: ${required_gb}GB"
-                    log "Continuing anyway..."
-                else
-                    log "Storage space check passed"
-                fi
-            else
-                warn "Could not parse storage space, continuing anyway"
-            fi
-        else
-            warn "Storage command failed or returned empty output, continuing anyway"
-        fi
-    else
-        warn "Storage '$VM_STORAGE' check timed out or failed"
-        log "Available storages:"
-        timeout 5 pvesm status 2>/dev/null || log "Could not list storages"
-        log "Continuing anyway..."
-    fi
-}
 
 # Download cloud image if not exists
 download_cloud_image() {
@@ -328,7 +272,6 @@ main() {
     
     # Check environment
     check_proxmox
-    check_storage_space
     
     # Show current VM status
     log "Current VM status:"
