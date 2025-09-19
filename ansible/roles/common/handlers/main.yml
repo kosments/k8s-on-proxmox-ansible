@@ -21,11 +21,3 @@
     locale-gen
     update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
   become: true
-  systemd:
-    name: sshd
-    state: restarted
-    daemon_reload: yes
-  ignore_errors: yes
-
-- name: reload locale
-  command: update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
