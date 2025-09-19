@@ -51,55 +51,6 @@
     timeout: 300
     sleep: 5
   delegate_to: localhost
-        - echo "StrictHostKeyChecking no" >> /etc/ssh/sshd_config
-        - echo "UserKnownHostsFile /dev/null" >> /etc/ssh/sshd_config
-        - echo "HostKeyAlgorithms +ssh-rsa" >> /etc/ssh/sshd_config
-        - echo "PubkeyAcceptedKeyTypes +ssh-rsa" >> /etc/ssh/sshd_config
-        - chmod 600 /etc/ssh/sshd_config
-        - systemctl restart ssh
-        - echo "HostKey /etc/ssh/ssh_host_ecdsa_key" >> /etc/ssh/sshd_config
-        - echo "HostKey /etc/ssh/ssh_host_ed25519_key" >> /etc/ssh/sshd_config
-        - echo "PermitRootLogin no" >> /etc/ssh/sshd_config
-        - echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config
-        - echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
-        - echo "ChallengeResponseAuthentication no" >> /etc/ssh/sshd_config
-        - echo "UsePAM yes" >> /etc/ssh/sshd_config
-        - echo "X11Forwarding yes" >> /etc/ssh/sshd_config
-        - echo "PrintMotd no" >> /etc/ssh/sshd_config
-        - chmod 600 /etc/ssh/sshd_config
-        
-        # SSHキーの確認と修正
-        - mkdir -p /home/ubuntu/.ssh
-        - chmod 700 /home/ubuntu/.ssh
-        - chown ubuntu:ubuntu /home/ubuntu/.ssh
-        
-        # SSHサービスの開始
-        - systemctl enable ssh
-        - systemctl start ssh
-        
-        # ファイアウォール設定（SSHを最初に許可）
-        - ufw --force reset
-        - ufw allow 22/tcp  # SSHを最初に許可
-        - ufw default allow outgoing
-        - ufw default deny incoming
-        - ufw allow 6443/tcp  # Kubernetes API server
-        - ufw allow 10250/tcp  # Kubelet API
-        - ufw allow 10255/tcp  # Read-only Kubelet API
-        - ufw allow 10257/tcp  # kube-controller-manager
-        - ufw allow 10259/tcp  # kube-scheduler
-        - ufw allow 2379:2380/tcp  # etcd server client API
-        - ufw allow 30000:32767/tcp  # NodePort Services
-        - ufw allow 8472/udp  # Flannel VXLAN
-        - ufw --force enable
-        
-        # 権限とサービスの最終確認
-        - chmod 755 /home/ubuntu
-        - systemctl restart ssh
-        - netstat -tulpn | grep 22 > /tmp/ssh-port-check.log
-        - ufw status > /tmp/ufw-status.log
-        - echo "SSH and firewall configuration completed" > /tmp/ssh-setup.log
-    dest: "/var/lib/vz/snippets/user-data-{{ vm.name }}.yml"
-    mode: '0644'
 
 - name: Apply custom cloud-init user data
   command: >
