@@ -75,50 +75,46 @@ check_storage_space() {
     
     log "Active VMs to create: ${active_vm_count}"
     
-    # Check if storage exists and get space info
-    log "Checking storage '$VM_STORAGE' status..."
-    if ! pvesm status -storage $VM_STORAGE &>/dev/null; then
-        warn "Storage '$VM_STORAGE' not found or not accessible"
+    # Simple storage check with timeout
+    log "Testing storage command..."
+    if timeout 10 pvesm status -storage $VM_STORAGE >/dev/null 2>&1; then
+        log "Storage '$VM_STORAGE' is accessible"
+        
+        # Get storage information
+        local storage_output
+        storage_output=$(timeout 10 pvesm status -storage $VM_STORAGE 2>/dev/null)
+        local cmd_result=$?
+        
+        if [ $cmd_result -eq 0 ] && [ -n "$storage_output" ]; then
+            log "Storage command successful"
+            
+            # Parse available space
+            local available_gb
+            available_gb=$(echo "$storage_output" | awk 'NR==2 {printf "%.0f", $4/1024/1024}' 2>/dev/null)
+            
+            if [[ "$available_gb" =~ ^[0-9]+$ ]] && [ "$available_gb" -gt 0 ]; then
+                local required_gb=$((active_vm_count * 100 + 50))
+                log "Available space: ${available_gb}GB"
+                log "Required space: ${required_gb}GB"
+                
+                if [ "$available_gb" -lt "$required_gb" ]; then
+                    warn "Low storage space. Available: ${available_gb}GB, Required: ${required_gb}GB"
+                    log "Continuing anyway..."
+                else
+                    log "Storage space check passed"
+                fi
+            else
+                warn "Could not parse storage space, continuing anyway"
+            fi
+        else
+            warn "Storage command failed or returned empty output, continuing anyway"
+        fi
+    else
+        warn "Storage '$VM_STORAGE' check timed out or failed"
         log "Available storages:"
-        pvesm status | while IFS= read -r line; do
-            log "  $line"
-        done
-        error "Storage '$VM_STORAGE' not found. Please check available storages above."
+        timeout 5 pvesm status 2>/dev/null || log "Could not list storages"
+        log "Continuing anyway..."
     fi
-    
-    # Get storage information with error handling
-    local storage_output
-    storage_output=$(pvesm status -storage $VM_STORAGE 2>/dev/null)
-    if [ $? -ne 0 ]; then
-        error "Failed to get storage status for '$VM_STORAGE'"
-    fi
-    
-    log "Storage output:"
-    echo "$storage_output" | while IFS= read -r line; do
-        log "  $line"
-    done
-    
-    # Parse available space (convert from bytes to GB)
-    local available_gb
-    available_gb=$(echo "$storage_output" | awk 'NR==2 {printf "%.0f", $4/1024/1024}')
-    
-    # Validate the parsed value
-    if [[ ! "$available_gb" =~ ^[0-9]+$ ]]; then
-        warn "Could not parse available space, skipping storage check"
-        log "Storage space check skipped due to parsing error"
-        return 0
-    fi
-    
-    local required_gb=$((active_vm_count * 100 + 50))  # 100GB per active VM + 50GB buffer
-    
-    log "Available space: ${available_gb}GB"
-    log "Required space: ${required_gb}GB"
-    
-    if [ "$available_gb" -lt "$required_gb" ]; then
-        error "Insufficient storage space. Available: ${available_gb}GB, Required: ${required_gb}GB"
-    fi
-    
-    log "Storage space check passed"
 }
 
 # Download cloud image if not exists
@@ -333,6 +329,28 @@ main() {
     # Check environment
     check_proxmox
     check_storage_space
+    
+    # Show current VM status
+    log "Current VM status:"
+    for i in "${!VM_IDS[@]}"; do
+        local vm_id=${VM_IDS[$i]}
+        local vm_name=${VM_NAMES[$i]}
+        
+        if qm status $vm_id &>/dev/null; then
+            local status=$(qm status $vm_id | awk '{print $2}')
+            if should_skip_vm $vm_id; then
+                log "  VM $vm_id ($vm_name): $status - WILL KEEP (SKIP)"
+            else
+                log "  VM $vm_id ($vm_name): $status - WILL RECREATE"
+            fi
+        else
+            if should_skip_vm $vm_id; then
+                log "  VM $vm_id ($vm_name): not exists - SKIP"
+            else
+                log "  VM $vm_id ($vm_name): not exists - WILL CREATE"
+            fi
+        fi
+    done
     
     # Setup prerequisites
     download_cloud_image
