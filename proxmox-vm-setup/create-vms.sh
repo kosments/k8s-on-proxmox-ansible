@@ -159,11 +159,7 @@ create_vm() {
     log "Importing disk for VM $vm_id..."
     qm importdisk $vm_id "$CLOUD_IMAGE_PATH" $VM_STORAGE
     
-    # Resize disk to desired size
-    log "Resizing disk to $VM_DISK_SIZE for VM $vm_id..."
-    qm resize $vm_id scsi0 $VM_DISK_SIZE
-    
-    # Configure VM
+    # Configure VM first to attach the disk
     log "Configuring VM $vm_id..."
     qm set $vm_id \
         --scsihw virtio-scsi-pci \
@@ -178,6 +174,10 @@ create_vm() {
         --sshkeys /root/.ssh/id_rsa.pub \
         --ipconfig0 ip=${vm_ip}/24,gw=$GATEWAY \
         --nameserver $NAMESERVER
+    
+    # Now resize the disk after it's attached
+    log "Resizing disk to $VM_DISK_SIZE for VM $vm_id..."
+    qm resize $vm_id scsi0 $VM_DISK_SIZE
     
     # Start VM
     log "Starting VM $vm_id..."
