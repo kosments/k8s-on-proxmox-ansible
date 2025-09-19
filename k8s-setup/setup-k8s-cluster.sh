@@ -34,18 +34,38 @@ error() {
     exit 1
 }
 
-# Test SSH connectivity
+# Clear SSH host keys for all VMs (to avoid host key conflicts on VM recreation)
+clear_ssh_host_keys() {
+    log "Clearing SSH host keys to avoid conflicts..."
+    
+    # Remove host keys for all VM IPs
+    for ip in $MASTER_IP $NODE1_IP $NODE2_IP; do
+        ssh-keygen -f "/root/.ssh/known_hosts" -R "$ip" 2>/dev/null || true
+    done
+    
+    log "SSH host keys cleared"
+}
+
+# Test SSH connectivity with aggressive host key management
 test_ssh() {
     local host=$1
     log "Testing SSH connectivity to $host..."
-    if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$host "echo 'SSH OK'" >/dev/null 2>&1; then
+    
+    # Use very permissive SSH options to avoid host key issues
+    local ssh_opts="-o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+    
+    if ssh $ssh_opts -i $SSH_KEY $SSH_USER@$host "echo 'SSH OK'" >/dev/null 2>&1; then
         log "SSH to $host: OK"
         return 0
     else
         warn "SSH to $host: FAILED - attempting to setup SSH key..."
         setup_ssh_key $host
+        
+        # Wait a moment for SSH service to be ready
+        sleep 5
+        
         # Test again after key setup
-        if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$host "echo 'SSH OK'" >/dev/null 2>&1; then
+        if ssh $ssh_opts -i $SSH_KEY $SSH_USER@$host "echo 'SSH OK'" >/dev/null 2>&1; then
             log "SSH to $host: OK (after key setup)"
             return 0
         else
@@ -76,7 +96,11 @@ remote_exec() {
     local host=$1
     local cmd=$2
     log "Executing on $host: $cmd"
-    if ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$host "sudo bash -c '$cmd'"; then
+    
+    # Use consistent SSH options across all connections
+    local ssh_opts="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+    
+    if ssh $ssh_opts -i $SSH_KEY $SSH_USER@$host "sudo bash -c '$cmd'"; then
         log "Command executed successfully on $host"
         return 0
     else
@@ -219,8 +243,9 @@ setup_master() {
     "
     
     # Copy kubeconfig and join command locally (idempotent)
-    scp -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$host:/etc/kubernetes/admin.conf ./kubeconfig 2>/dev/null || true
-    scp -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$host:/tmp/kubeadm-join-command.txt ./join-command.txt 2>/dev/null || true
+    local scp_opts="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+    scp $scp_opts -i $SSH_KEY $SSH_USER@$host:/etc/kubernetes/admin.conf ./kubeconfig 2>/dev/null || true
+    scp $scp_opts -i $SSH_KEY $SSH_USER@$host:/tmp/kubeadm-join-command.txt ./join-command.txt 2>/dev/null || true
     
     log "Master node setup completed"
 }
@@ -271,7 +296,8 @@ join_worker() {
     
     # Copy join command to worker node
     if [ -f "./join-command.txt" ]; then
-        scp -o StrictHostKeyChecking=no -i $SSH_KEY ./join-command.txt $SSH_USER@$host:/tmp/kubeadm-join-command.txt 2>/dev/null || true
+        local scp_opts="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+        scp $scp_opts -i $SSH_KEY ./join-command.txt $SSH_USER@$host:/tmp/kubeadm-join-command.txt 2>/dev/null || true
     fi
     
     log "Worker node $hostname setup completed"
@@ -373,6 +399,9 @@ main() {
     # Check prerequisites
     check_prerequisites
     
+    # Clear SSH host keys to avoid conflicts from VM recreation
+    clear_ssh_host_keys
+    
     # Test SSH connectivity to all nodes
     test_ssh $MASTER_IP
     test_ssh $NODE1_IP
@@ -406,8 +435,9 @@ main() {
     # Copy join command to worker nodes first
     if [ -f "./join-command.txt" ]; then
         log "Copying join command to worker nodes..."
-        scp -o StrictHostKeyChecking=no -i $SSH_KEY ./join-command.txt $SSH_USER@$NODE1_IP:/tmp/kubeadm-join-command.txt 2>/dev/null || true
-        scp -o StrictHostKeyChecking=no -i $SSH_KEY ./join-command.txt $SSH_USER@$NODE2_IP:/tmp/kubeadm-join-command.txt 2>/dev/null || true
+        local scp_opts="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+        scp $scp_opts -i $SSH_KEY ./join-command.txt $SSH_USER@$NODE1_IP:/tmp/kubeadm-join-command.txt 2>/dev/null || true
+        scp $scp_opts -i $SSH_KEY ./join-command.txt $SSH_USER@$NODE2_IP:/tmp/kubeadm-join-command.txt 2>/dev/null || true
     fi
     
     join_worker $NODE1_IP "k8s-node1"
