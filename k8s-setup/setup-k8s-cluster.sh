@@ -195,13 +195,15 @@ setup_ssh_key() {
 # Execute command on remote host
 remote_exec() {
     local host=$1
-    local cmd=$2
+    shift
+    local cmd="$*"
     log "Executing on $host: $cmd"
     
     # Use consistent SSH options across all connections
     local ssh_opts="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
     
-    if ssh $ssh_opts -i $SSH_KEY $SSH_USER@$host "sudo bash -c '$cmd'"; then
+    # Use heredoc to avoid quoting issues
+    if ssh $ssh_opts -i $SSH_KEY $SSH_USER@$host "sudo bash -s" <<< "$cmd"; then
         log "Command executed successfully on $host"
         return 0
     else
