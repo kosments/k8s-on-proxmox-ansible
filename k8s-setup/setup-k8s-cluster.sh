@@ -5,14 +5,36 @@
 
 set -e
 
-# Configuration
-MASTER_IP="192.168.10.101"
-NODE1_IP="192.168.10.102"
-NODE2_IP="192.168.10.103"
-SSH_USER="ubuntu"
-SSH_KEY="/root/.ssh/id_rsa"
+# Load shared configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/../config.sh"
+
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Loaded configuration from $CONFIG_FILE"
+else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Configuration file not found: $CONFIG_FILE"
+    exit 1
+fi
+
+# K8s setup specific configuration
+SSH_KEY="$SSH_KEY_PATH"
 K8S_VERSION="1.28.2-1.1"
-POD_CIDR="10.244.0.0/16"
+POD_CIDR="$POD_NETWORK_CIDR"
+
+# Get active VMs for cluster setup
+ACTIVE_VMS=($(get_active_vms))
+MASTER_VM=$(get_master_vm)
+WORKER_VMS=($(get_worker_vms))
+
+# Set legacy variables for backward compatibility
+MASTER_IP=$(get_vm_ip $MASTER_VM)
+if [ ${#WORKER_VMS[@]} -gt 0 ]; then
+    NODE1_IP=$(get_vm_ip ${WORKER_VMS[0]})
+fi
+if [ ${#WORKER_VMS[@]} -gt 1 ]; then
+    NODE2_IP=$(get_vm_ip ${WORKER_VMS[1]})
+fi
 
 # Colors for output
 RED='\033[0;31m'

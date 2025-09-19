@@ -6,27 +6,22 @@
 
 set -e
 
-# Configuration
-VM_IDS=(101 102 103 104)
-VM_NAMES=("k8s-master" "k8s-node1" "k8s-node2" "k8s-node3")
-VM_IPS=("192.168.10.101" "192.168.10.102" "192.168.10.103" "192.168.10.104")
+# Load shared configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/../config.sh"
 
-# Skip flags - set to true to skip VM creation
-SKIP_VM_101=false
-SKIP_VM_102=true   # Temporarily skip VM 102
-SKIP_VM_103=false
-SKIP_VM_104=false  # New node 3
-VM_MEMORY=4096  # 4GB RAM (increased from 2GB)
-VM_CORES=2
-VM_DISK_SIZE="100G"  # 100GB disk for ample space
-VM_STORAGE="local-lvm"
-BRIDGE="vmbr0"
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Loaded configuration from $CONFIG_FILE"
+else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Configuration file not found: $CONFIG_FILE"
+    exit 1
+fi
+
+# Additional VM creation specific configuration
 GATEWAY="192.168.10.1"
 NAMESERVER="8.8.8.8"
-SSH_USER="ubuntu"
 SSH_PASSWORD="ubuntu"
-CLOUD_IMAGE_URL="https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img"
-CLOUD_IMAGE_PATH="/var/lib/vz/template/iso/ubuntu-22.04-server-cloudimg-amd64.img"
 
 # Colors for output
 RED='\033[0;31m'
@@ -86,17 +81,6 @@ setup_ssh_key() {
     fi
 }
 
-# Check if VM should be skipped
-should_skip_vm() {
-    local vm_id=$1
-    case $vm_id in
-        101) [ "$SKIP_VM_101" = true ] && return 0 ;;
-        102) [ "$SKIP_VM_102" = true ] && return 0 ;;
-        103) [ "$SKIP_VM_103" = true ] && return 0 ;;
-        104) [ "$SKIP_VM_104" = true ] && return 0 ;;
-    esac
-    return 1
-}
 
 # Check if VM exists (idempotent check)
 vm_exists() {
