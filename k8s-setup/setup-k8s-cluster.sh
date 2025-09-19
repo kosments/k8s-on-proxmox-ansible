@@ -329,10 +329,10 @@ setup_master() {
     remote_exec $host "
         # Check if cluster is already initialized (idempotent)
         if [ ! -f /etc/kubernetes/admin.conf ]; then
-            log 'Initializing Kubernetes cluster...'
+            echo 'Initializing Kubernetes cluster...'
             kubeadm init --pod-network-cidr=$POD_CIDR --apiserver-advertise-address=$host --control-plane-endpoint=$host:6443 --upload-certs
         else
-            log 'Kubernetes cluster already initialized'
+            echo 'Kubernetes cluster already initialized'
         fi
         
         # Setup kubectl for ubuntu user (idempotent)
@@ -384,16 +384,16 @@ join_worker() {
     # Check if node is already joined (idempotent)
     remote_exec $host "
         if [ -f /etc/kubernetes/kubelet.conf ]; then
-            log 'Node $hostname already joined to cluster'
+            echo 'Node $hostname already joined to cluster'
         else
             if [ ! -f '/tmp/kubeadm-join-command.txt' ]; then
-                log 'Join command not found, copying from controller...'
+                echo 'Join command not found, copying from controller...'
             fi
             # Execute join command
             if [ -f '/tmp/kubeadm-join-command.txt' ]; then
                 bash /tmp/kubeadm-join-command.txt
             else
-                log 'Warning: Could not join node - join command missing'
+                echo 'Warning: Could not join node - join command missing'
             fi
         fi
     "
