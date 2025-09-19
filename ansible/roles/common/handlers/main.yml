@@ -13,11 +13,14 @@
     state: restarted
 
 - name: update resolvconf
-  command: resolvconf -u
+  shell: resolvconf -u
   become: true
 
 - name: reload locale
-  command: locale-gen
+  shell: |
+    locale-gen
+    update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+  become: true
   systemd:
     name: sshd
     state: restarted
