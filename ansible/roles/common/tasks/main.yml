@@ -32,15 +32,14 @@
     - "LC_ALL=en_US.UTF-8"
 
 # Configure DNS and networking settings
-- name: Install required networking packages
+- name: Install resolvconf package
   apt:
-    name:
-      - resolvconf
+    name: resolvconf
     state: present
     update_cache: yes
   become: true
 
-- name: Configure resolv.conf
+- name: Configure DNS settings
   copy:
     content: |
       nameserver 8.8.8.8
@@ -52,11 +51,11 @@
   become: true
   notify: update resolvconf
 
-- name: Ensure resolvconf service is running
+- name: Start and enable resolvconf service
   service:
     name: resolvconf
     state: started
-    enabled: yes
+    enabled: true
   become: true
     enabled: yes
   become: true
