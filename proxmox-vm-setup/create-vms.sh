@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Proxmox VM Creation Script
-# Creates 3 VMs for Kubernetes cluster sequentially to avoid conflicts
+# Creates 3 VMs for Kubernetes cluster sequentially with adequate disk space
 
 set -e
 
@@ -9,8 +9,9 @@ set -e
 VM_IDS=(101 102 103)
 VM_NAMES=("k8s-master" "k8s-node1" "k8s-node2")
 VM_IPS=("192.168.10.101" "192.168.10.102" "192.168.10.103")
-VM_MEMORY=2048
+VM_MEMORY=4096  # 4GB RAM (increased from 2GB)
 VM_CORES=2
+VM_DISK_SIZE="20G"  # 20GB disk (NEW!)
 VM_STORAGE="local-lvm"
 BRIDGE="vmbr0"
 GATEWAY="192.168.10.1"
@@ -52,6 +53,23 @@ check_proxmox() {
     log "Proxmox VE environment detected"
 }
 
+# Check available storage space
+check_storage_space() {
+    log "Checking available storage space..."
+    
+    local available_gb=$(pvesm status -storage $VM_STORAGE | awk 'NR==2 {printf "%.0f", $4/1024/1024}')
+    local required_gb=$((${#VM_IDS[@]} * 20 + 10))  # 20GB per VM + 10GB buffer
+    
+    log "Available space: ${available_gb}GB"
+    log "Required space: ${required_gb}GB"
+    
+    if [ "$available_gb" -lt "$required_gb" ]; then
+        error "Insufficient storage space. Available: ${available_gb}GB, Required: ${required_gb}GB"
+    fi
+    
+    log "Storage space check passed"
+}
+
 # Download cloud image if not exists
 download_cloud_image() {
     log "Checking Ubuntu cloud image..."
@@ -77,6 +95,16 @@ setup_ssh_key() {
     fi
 }
 
+# Check if VM exists (idempotent check)
+vm_exists() {
+    local vm_id=$1
+    if qm status $vm_id &>/dev/null; then
+        return 0  # VM exists
+    else
+        return 1  # VM doesn't exist
+    fi
+}
+
 # Stop and destroy VM if exists
 cleanup_vm() {
     local vm_id=$1
@@ -84,7 +112,7 @@ cleanup_vm() {
     
     log "Checking if VM $vm_id ($vm_name) exists..."
     
-    if qm status $vm_id &>/dev/null; then
+    if vm_exists $vm_id; then
         log "VM $vm_id exists, cleaning up..."
         
         # Stop VM if running
@@ -98,12 +126,13 @@ cleanup_vm() {
         log "Destroying VM $vm_id..."
         qm destroy $vm_id
         sleep 2
+        log "VM $vm_id destroyed"
     else
         log "VM $vm_id does not exist, skipping cleanup"
     fi
 }
 
-# Create a single VM
+# Create a single VM with proper disk sizing
 create_vm() {
     local vm_id=$1
     local vm_name=$2
@@ -111,8 +140,14 @@ create_vm() {
     
     log "Creating VM $vm_id ($vm_name) with IP $vm_ip..."
     
+    # Check if VM already exists (idempotent)
+    if vm_exists $vm_id; then
+        log "VM $vm_id ($vm_name) already exists, skipping creation"
+        return 0
+    fi
+    
     # Create VM
-    log "Creating VM $vm_id..."
+    log "Creating VM $vm_id with ${VM_MEMORY}MB RAM, ${VM_CORES} cores..."
     qm create $vm_id \
         --name $vm_name \
         --memory $VM_MEMORY \
@@ -123,6 +158,10 @@ create_vm() {
     # Import disk
     log "Importing disk for VM $vm_id..."
     qm importdisk $vm_id "$CLOUD_IMAGE_PATH" $VM_STORAGE
+    
+    # Resize disk to desired size
+    log "Resizing disk to $VM_DISK_SIZE for VM $vm_id..."
+    qm resize $vm_id scsi0 $VM_DISK_SIZE
     
     # Configure VM
     log "Configuring VM $vm_id..."
@@ -154,6 +193,11 @@ create_vm() {
         
         if timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PasswordAuthentication=no $SSH_USER@$vm_ip "echo 'SSH OK'" &>/dev/null; then
             log "VM $vm_id ($vm_name) is ready and accessible via SSH!"
+            
+            # Show disk usage
+            log "Checking disk space on VM $vm_id..."
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $SSH_USER@$vm_ip "df -h /" || true
+            
             return 0
         fi
         
@@ -166,7 +210,7 @@ create_vm() {
     return 0
 }
 
-# Verify all VMs are accessible
+# Verify all VMs are accessible and show their disk usage
 verify_vms() {
     log "Verifying all VMs are accessible..."
     
@@ -179,6 +223,10 @@ verify_vms() {
         
         if timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PasswordAuthentication=no $SSH_USER@$vm_ip "echo 'SSH OK'" &>/dev/null; then
             log "✓ VM $vm_id ($vm_name): SSH OK"
+            
+            # Show disk usage
+            log "Disk usage for VM $vm_id ($vm_name):"
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $SSH_USER@$vm_ip "df -h /" | grep -v "Filesystem" || true
         else
             warn "✗ VM $vm_id ($vm_name): SSH FAILED"
         fi
@@ -188,13 +236,28 @@ verify_vms() {
 # Main execution
 main() {
     log "Starting Proxmox VM creation for Kubernetes cluster..."
+    log "Configuration:"
+    log "  Memory: ${VM_MEMORY}MB per VM"
+    log "  CPU cores: ${VM_CORES} per VM"
+    log "  Disk size: ${VM_DISK_SIZE} per VM"
+    log "  Storage: ${VM_STORAGE}"
     
     # Check environment
     check_proxmox
+    check_storage_space
     
     # Setup prerequisites
     download_cloud_image
     setup_ssh_key
+    
+    # Ask user for confirmation before cleanup
+    echo ""
+    read -p "This will destroy existing VMs with IDs ${VM_IDS[*]}. Continue? (y/N): " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        log "Operation cancelled by user"
+        exit 0
+    fi
     
     # Clean up existing VMs
     log "Phase 1: Cleaning up existing VMs..."
@@ -214,7 +277,7 @@ main() {
     done
     
     # Verify all VMs
-    log "Phase 3: Verifying VM accessibility..."
+    log "Phase 3: Verifying VM accessibility and disk space..."
     sleep 30  # Give VMs time to fully boot
     verify_vms
     
@@ -222,7 +285,7 @@ main() {
     log ""
     log "Summary:"
     for i in "${!VM_IDS[@]}"; do
-        log "  ${VM_NAMES[$i]} (ID: ${VM_IDS[$i]}) - IP: ${VM_IPS[$i]}"
+        log "  ${VM_NAMES[$i]} (ID: ${VM_IDS[$i]}) - IP: ${VM_IPS[$i]} - Disk: ${VM_DISK_SIZE} - RAM: ${VM_MEMORY}MB"
     done
     log ""
     log "You can now proceed with Kubernetes cluster setup:"

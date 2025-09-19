@@ -99,22 +99,37 @@ setup_common() {
         
         # Fix any package issues first (idempotent)
         export DEBIAN_FRONTEND=noninteractive
-        apt-get update || true
-        apt --fix-broken install -y || true
+        
+        # Clean up disk space first
         apt-get clean
         apt-get autoclean
+        apt-get autoremove -y || true
+        
+        # Clear old kernels to free up space
+        apt-get autoremove --purge -y || true
+        
+        # Remove old log files
+        journalctl --vacuum-time=3d || true
+        
+        # Update and fix broken packages
+        apt-get update || true
+        apt --fix-broken install -y || true
         apt-get update
         
-        # Upgrade system (idempotent)
-        apt-get upgrade -y
-        apt-get autoremove -y
+        # Upgrade system (idempotent) - skip if disk space is low
+        df -h / | awk 'NR==2 {print \$5}' | sed 's/%//' | (read percent; if [ \$percent -lt 90 ]; then apt-get upgrade -y; else echo 'Skipping upgrade due to low disk space'; fi) || true
+        apt-get autoremove -y || true
+        
+        # Additional cleanup after upgrade
+        apt-get clean
+        apt-get autoclean
         
         # Install required packages (idempotent)
         apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release software-properties-common
         
         # Disable swap (idempotent)
         swapoff -a || true
-        sed -i '/swap/s/^[^#]/#&/' /etc/fstab || true
+        sed -i 's/^[^#]*swap.*$/#&/' /etc/fstab || true
         
         # Load kernel modules (idempotent)
         modprobe overlay || true
@@ -275,6 +290,47 @@ verify_cluster() {
     "
 }
 
+# Check disk space on VMs
+check_disk_space() {
+    local host=$1
+    local hostname=$2
+    
+    log "Checking disk space on $hostname ($host)..."
+    
+    remote_exec $host "
+        # Show disk usage
+        echo 'Disk usage:'
+        df -h /
+        
+        # Check if we have enough space (at least 2GB free)
+        available=\$(df / | awk 'NR==2 {print \$4}')
+        if [ \$available -lt 2097152 ]; then
+            echo 'WARNING: Less than 2GB available disk space'
+            echo 'Attempting to free up space...'
+            
+            # Aggressive cleanup
+            apt-get clean
+            apt-get autoclean
+            apt-get autoremove --purge -y || true
+            
+            # Clear logs
+            journalctl --vacuum-time=1d || true
+            
+            # Clear temp files
+            find /tmp -type f -atime +7 -delete || true
+            find /var/tmp -type f -atime +7 -delete || true
+            
+            # Clear apt cache completely
+            rm -rf /var/cache/apt/archives/*.deb || true
+            
+            echo 'After cleanup:'
+            df -h /
+        else
+            echo 'Disk space OK'
+        fi
+    "
+}
+
 # Check prerequisites
 check_prerequisites() {
     log "Checking prerequisites..."
@@ -321,6 +377,12 @@ main() {
     test_ssh $MASTER_IP
     test_ssh $NODE1_IP
     test_ssh $NODE2_IP
+    
+    # Check disk space on all nodes
+    log "Phase 0: Checking and cleaning up disk space..."
+    check_disk_space $MASTER_IP "k8s-master"
+    check_disk_space $NODE1_IP "k8s-node1" 
+    check_disk_space $NODE2_IP "k8s-node2"
     
     # Setup common components on all nodes
     log "Phase 1: Setting up common components..."
