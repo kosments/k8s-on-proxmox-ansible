@@ -669,7 +669,7 @@ main() {
                 sleep 10
             fi
         else
-            error "VM $vm_id ($vm_name) does not exist. Please create VMs first using proxmox-vm-setup/create-vms.sh"
+            error "VM $vm_id ($vm_name) does not exist. Please create VMs first using 01-vm-creation/create-vms.sh"
         fi
     done
     

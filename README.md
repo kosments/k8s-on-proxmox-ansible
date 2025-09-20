@@ -2,21 +2,31 @@
 
 ProxmoxVE上にKubernetesクラスターを自動構築するためのツールセットです。
 
-## 🚀 クイックスタート
+## 🚀 クイックスタート（推奨：Shell Script）
 
-### 必要な手順（2ステップのみ）
+### 必要な手順（4ステップ）
 
-1. **VM作成**: `proxmox-vm-setup/create-vms.sh`
-2. **Kubernetes構築**: `k8s-setup/setup-k8s-cluster.sh`
+1. **VM作成**: `01-vm-creation/create-vms.sh`
+2. **Kubernetes構築**: `02-k8s-cluster/setup-k8s-cluster.sh`
+3. **基盤サービス**: `03-manifests/` の各種セットアップスクリプト
+4. **アプリケーション**: `04-applications/` のマニフェスト適用
 
 ```bash
 # 1. VM作成（Proxmoxホスト上で実行）
-cd proxmox-vm-setup
+cd 01-vm-creation
 ./create-vms.sh
 
 # 2. Kubernetesクラスター構築（Proxmoxホスト上で実行）
-cd ../k8s-setup
+cd ../02-k8s-cluster
 ./setup-k8s-cluster.sh
+
+# 3. 監視システム（オプション）
+cd ../03-manifests/monitoring
+./setup-monitoring.sh
+
+# 4. サンプルアプリケーション（オプション）
+cd ../../04-applications
+kubectl apply -f sample-app.yaml
 ```
 
 ### 構築されるクラスター
@@ -31,14 +41,131 @@ cd ../k8s-setup
 ```
 k8s-on-proxmox-ansible/
 ├── config.sh                    # 共通設定ファイル
-├── proxmox-vm-setup/            # VM作成関連
-│   ├── create-vms.sh            # VMの作成・管理
+├── 01-vm-creation/              # VM作成関連
+│   ├── create-vms.sh            # VMの作成・管理（推奨）
+│   ├── alternative-ansible-setup/  # Ansible代替セットアップ
+│   │   ├── create_vm.yml        # VM作成用プレイブック
+│   │   ├── playbook.yml         # メインプレイブック
+│   │   └── inventory.ini        # インベントリファイル
 │   └── README.md                # VM作成の詳細手順
-├── k8s-setup/                   # Kubernetes構築関連
-│   ├── setup-k8s-cluster.sh     # Kubernetesクラスター構築
+├── 02-k8s-cluster/              # Kubernetes構築関連
+│   ├── setup-k8s-cluster.sh     # Kubernetesクラスター構築（推奨）
+│   ├── alternative-ansible-setup/  # Ansible代替セットアップ
+│   │   ├── ansible/             # Ansibleロール
+│   │   ├── sequential-playbook.yml  # K8s構築用playbook
+│   │   └── inventory.ini        # Ansibleインベントリ
 │   └── README.md                # K8s構築の詳細手順
+├── 03-manifests/                # 基盤サービス（監視、ログ、Service Mesh）
+│   ├── monitoring/              # Prometheus + Grafana
+│   ├── logging/                 # Grafana Loki
+│   ├── istio/                   # Service Mesh
+│   └── argocd/                  # GitOps
+├── 04-applications/             # アプリケーションマニフェスト
+│   └── sample-app.yaml          # サンプルアプリ
 └── README.md                    # このファイル
 ```
+
+## 🛠️ セットアップ方法の選択
+
+### 推奨：Shell Script方式
+
+- **簡単**: 依存関係なし、すぐに実行可能
+- **高速**: 直接SSH実行で効率的
+- **デバッグしやすい**: ログが見やすい
+
+### 代替：Ansible方式
+
+- **冪等性**: 同じ状態を保証
+- **スケーラブル**: 大規模環境向け
+- **設定管理**: YAML形式での管理
+
+詳細は各ディレクトリのREADMEを参照してください。
+
+## 🚀 Proxmoxへの効率的なデプロイ
+
+### 方法1: 自動化スクリプト（推奨）
+
+自動化スクリプトを使用することで、ローカルの変更を即座にProxmoxに反映できます。
+
+```bash
+# 初回セットアップ
+chmod +x deploy-to-proxmox.sh
+
+# 環境変数設定（必要に応じて）
+export PROXMOX_HOST="192.168.10.108"  # ProxmoxのIP
+export PROXMOX_USER="root"             # Proxmoxユーザー
+
+# 全体同期
+./deploy-to-proxmox.sh sync
+
+# 監視設定のみデプロイ
+./deploy-to-proxmox.sh monitoring
+
+# VM作成のみ実行
+./deploy-to-proxmox.sh vm-create
+
+# K8sセットアップのみ実行
+./deploy-to-proxmox.sh k8s-setup
+
+# システム状況確認
+./deploy-to-proxmox.sh status
+
+# SSH接続
+./deploy-to-proxmox.sh ssh
+
+# ヘルプ表示
+./deploy-to-proxmox.sh help
+```
+
+**メリット:**
+
+- ローカルでの編集 → 自動同期 → リモート実行
+- 部分的なデプロイが可能
+- SSH接続テスト機能内蔵
+- エラーハンドリング機能
+
+### 方法2: Remote SSH（Cursor/VS Code）
+
+```bash
+# SSH設定（~/.ssh/config）
+Host proxmox
+    HostName 192.168.10.108  # ProxmoxのIP
+    User root
+    IdentityFile ~/.ssh/id_rsa
+    ServerAliveInterval 60
+```
+
+1. Cursorで `Cmd+Shift+P` → "Remote-SSH: Connect to Host"
+2. "proxmox" を選択
+3. リモートでCursorが開き、直接編集・実行可能
+
+**メリット:**
+
+- Proxmox上で直接編集・実行
+- リアルタイムファイル同期
+- ローカルと同じ開発体験
+- ターミナル統合
+
+### 方法3: 従来の手動同期
+
+```bash
+# Proxmoxコンソールで実行
+git clone https://github.com/your-repo/k8s-on-proxmox-ansible.git
+cd k8s-on-proxmox-ansible
+git pull  # 更新時
+```
+
+**メリット:**
+
+- 最もシンプルな方法
+- 依存関係なし
+- Git履歴の完全な同期
+
+### 🎯 推奨ワークフロー
+
+1. **開発時**: Remote SSH（方法2）で直接編集・テスト
+2. **デプロイ時**: 自動化スクリプト（方法1）で確実な同期・実行
+3. **緊急時**: 手動同期（方法3）でシンプルに対応
 
 ## ⚙️ 設定のカスタマイズ
 
@@ -60,11 +187,13 @@ SKIP_VM_104=true   # ワーカーノード3（デフォルトでスキップ）
 ## 📋 システム要件
 
 ### Proxmox VE環境
+
 - ProxmoxVE 7.x以上
 - 利用可能ストレージ: 350GB以上
 - ネットワーク: 192.168.10.0/24
 
 ### 作成されるVM仕様
+
 - **OS**: Ubuntu 22.04 LTS
 - **メモリ**: 4GB/VM
 - **CPU**: 2コア/VM
@@ -75,65 +204,74 @@ SKIP_VM_104=true   # ワーカーノード3（デフォルトでスキップ）
 基本的なKubernetesクラスターが完成しました！以下の手順で本格的な環境を構築できます：
 
 ### 📊 **1. 監視スタック（Prometheus + Grafana）**
+
 ```bash
-cd manifests/monitoring
+cd 03-manifests/monitoring
 chmod +x setup-monitoring.sh
 ./setup-monitoring.sh
 ```
 
 **アクセス方法:**
+
 - Grafana: `http://<node-ip>:30300` (admin/admin123)
 - 人気ダッシュボード: 315, 6417, 7249, 10000
 
 ### 📝 **2. ログ集約（Grafana Loki）**
+
 ```bash
-cd manifests/logging
+cd 03-manifests/logging
 chmod +x setup-logging.sh
 ./setup-logging.sh
 ```
 
 **LogQLクエリ例:**
+
 - `{namespace="default"}` - 名前空間のログ
 - `{app="nginx"} |= "error"` - エラーログ
 - `rate({namespace="default"}[5m])` - ログレート
 
 ### 🎯 **3. サンプルアプリケーション**
+
 ```bash
-kubectl apply -f manifests/apps/sample-app.yaml
+kubectl apply -f 04-applications/sample-app.yaml
 ```
 
 **アクセス方法:**
+
 - `http://<node-ip>:30080`
 - Port Forward: `kubectl port-forward -n sample-apps svc/sample-app 8080:80`
 
 ### 🕸️ **4. Service Mesh（Istio）**
+
 ```bash
-cd manifests/istio
+cd 03-manifests/istio
 chmod +x setup-istio.sh
 ./setup-istio.sh
 ```
 
 **主要コンポーネント:**
+
 - Kiali: Service Mesh可視化
 - Jaeger: 分散トレーシング
 - Ingress Gateway: 外部アクセス
 
 ### 🔄 **5. 統合セットアップ（推奨順序）**
+
 ```bash
 # 1. 基本クラスター（完了済み）
-cd k8s-setup && ./setup-k8s-cluster.sh
+cd 02-k8s-cluster && ./setup-k8s-cluster.sh
 
 # 2. 監視システム
-cd ../manifests/monitoring && ./setup-monitoring.sh
+cd ../03-manifests/monitoring && ./setup-monitoring.sh
 
 # 3. ログ集約
 cd ../logging && ./setup-logging.sh
 
 # 4. サンプルアプリ
-kubectl apply -f ../apps/sample-app.yaml
+kubectl apply -f ../04-applications/sample-app.yaml
 
 # 5. Service Mesh
-cd ../istio && ./setup-istio.sh
+cd ../03-manifests/istio && ./setup-istio.sh
 ```
 
 ## 🛠️ トラブルシューティング
@@ -148,7 +286,7 @@ curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stabl
 chmod +x kubectl && sudo mv kubectl /usr/local/bin/
 
 # kubeconfigを設定
-cd k8s-setup
+cd 02-k8s-cluster
 export KUBECONFIG=$PWD/kubeconfig
 kubectl get nodes
 ```
@@ -156,14 +294,16 @@ kubectl get nodes
 ### 詳細なトラブルシューティング
 
 詳細なトラブルシューティング情報は各ディレクトリのREADMEを参照してください：
-- [VM作成のトラブルシューティング](proxmox-vm-setup/README.md#トラブルシューティング)
-- [K8s構築のトラブルシューティング](k8s-setup/README.md#トラブルシューティング)
+
+- [VM作成のトラブルシューティング](01-vm-creation/README.md#トラブルシューティング)
+- [K8s構築のトラブルシューティング](02-k8s-cluster/README.md#トラブルシューティング)
 
 ---
 
 ## Proxmox 基本用語
 
 ### 仮想化関連
+
 - **VM (Virtual Machine)**: 完全仮想化された仮想マシン。KVMを使用。
 - **CT (Container)**: LXCベースのコンテナ。VMより軽量。
 - **Template**: VMやCTのテンプレート。新規作成時のベースとなる。
@@ -172,22 +312,26 @@ kubectl get nodes
   - **Linked Clone**: 差分のみを保存。元のディスクに依存。
 
 ### ストレージ関連
+
 - **local**: ノードのローカルディレクトリ（/var/lib/proxmox）
 - **local-lvm**: ノードのLVMストレージ。デフォルトのVM用ストレージ。
 - **ZFS**: より高度なファイルシステム。スナップショットやRAID機能。
 
 ### ネットワーク関連
+
 - **vmbr0**: デフォルトの仮想ブリッジ。通常、物理NICと接続。
 - **VLAN**: 仮想LANによるネットワークの分離。
 - **Cloud-Init**: VM初期設定用のツール（IPアドレス、SSHキーなど）。
 
 ### システム関連
+
 - **Node**: Proxmoxをインストールした物理サーバー。
 - **Cluster**: 複数のノードをまとめた集合。
 - **Pool**: VMやCTを論理的にグループ化する単位。
 - **DC (Datacenter)**: クラスタ全体の設定を管理する単位。
 
 ### ID体系
+
 - **VMID**: VMやCTを識別する番号（100-999999）
   - 100-999: ユーザー用
   - 1000-999999: システム用推奨
@@ -210,7 +354,7 @@ ssh ubuntu@192.168.10.103
 
 ## 同ネットワーク内の VM 宛に 22番ポートが空いているか確認する方法
 
-`lsof` は自分のローカルマシン上のソケットを確認するコマンドなので、リモート VM のポート確認には使えない。 
+`lsof` は自分のローカルマシン上のソケットを確認するコマンドなので、リモート VM のポート確認には使えない。
 リモートのポート確認には以下の方法を使用。
 
 ### 1. `nc` (netcat) で確認

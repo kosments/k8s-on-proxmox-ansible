@@ -347,7 +347,7 @@ main() {
     done
     log ""
     log "You can now proceed with Kubernetes cluster setup:"
-    log "  cd ../k8s-setup"
+    log "  cd ../02-k8s-cluster"
     log "  ./setup-k8s-cluster.sh"
 }
 
