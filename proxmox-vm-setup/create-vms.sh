@@ -1,8 +1,25 @@
 #!/bin/bash
 
-# Proxmox VM Creation Script
-# Creates 4 VMs for Kubernetes cluster sequentially with adequate disk space
-# VM 102 is temporarily skipped
+# =============================================================================
+# Proxmox VM Creation Script for Kubernetes Cluster
+# =============================================================================
+# 
+# このスクリプトは、ProxmoxVE上にKubernetesクラスター用のVMを作成します。
+# 
+# 【主な機能】
+# - Ubuntu 22.04 LTSベースのVM作成（4GB RAM, 2CPU, 100GBディスク）
+# - Cloud-initを使用した初期設定（SSH、ネットワーク）
+# - スキップ機能による柔軟なVM管理
+# - 冪等性保証（何度実行しても同じ結果）
+# - 既存VM の自動クリーンアップ
+# 
+# 【使用方法】
+# ./create-vms.sh
+# 
+# 【設定変更】
+# config.sh を編集してVM構成やスキップ設定を変更可能
+# 
+# =============================================================================
 
 set -e
 

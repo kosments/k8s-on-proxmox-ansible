@@ -1,0 +1,337 @@
+# =============================================================================
+# Sample Application for Kubernetes Cluster Testing
+# =============================================================================
+#
+# このマニフェストは、Kubernetesクラスターの動作確認用サンプルアプリケーションです。
+#
+# 【含まれるリソース】
+# - Deployment: Nginxベースのウェブアプリケーション
+# - Service: ClusterIP/NodePortでのサービス公開
+# - ConfigMap: アプリケーション設定
+# - Ingress: 外部アクセス用（オプション）
+#
+# 【デプロイ方法】
+# kubectl apply -f sample-app.yaml
+#
+# 【アクセス方法】
+# kubectl port-forward svc/sample-app 8080:80
+# curl http://localhost:8080
+#
+# =============================================================================
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sample-apps
+  labels:
+    name: sample-apps
+    istio-injection: enabled  # Istio用ラベル
+
+---
+# ConfigMap for custom HTML content
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sample-app-config
+  namespace: sample-apps
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Kubernetes Sample App</title>
+        <style>
+            body {
+                font-family: 'Arial', sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                margin: 0;
+                padding: 20px;
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .container {
+                background: white;
+                border-radius: 10px;
+                padding: 40px;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+                text-align: center;
+                max-width: 600px;
+            }
+            h1 { color: #333; margin-bottom: 20px; }
+            .info { background: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0; }
+            .status { color: #28a745; font-weight: bold; }
+            .metrics { display: flex; justify-content: space-around; margin: 20px 0; }
+            .metric { text-align: center; }
+            .metric-value { font-size: 24px; font-weight: bold; color: #007bff; }
+            .metric-label { font-size: 12px; color: #666; }
+            button {
+                background: #007bff;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                margin: 5px;
+            }
+            button:hover { background: #0056b3; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🚀 Kubernetes Sample Application</h1>
+            <div class="status">✅ アプリケーションが正常に動作しています</div>
+            
+            <div class="info">
+                <h3>📊 システム情報</h3>
+                <p><strong>Pod名:</strong> <span id="hostname">Loading...</span></p>
+                <p><strong>Namespace:</strong> sample-apps</p>
+                <p><strong>現在時刻:</strong> <span id="datetime">Loading...</span></p>
+            </div>
+            
+            <div class="metrics">
+                <div class="metric">
+                    <div class="metric-value" id="requests">0</div>
+                    <div class="metric-label">リクエスト数</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="uptime">0s</div>
+                    <div class="metric-label">稼働時間</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="memory">-</div>
+                    <div class="metric-label">メモリ使用量</div>
+                </div>
+            </div>
+            
+            <div>
+                <button onclick="makeRequest()">🔄 リフレッシュ</button>
+                <button onclick="testError()">⚠️ エラーテスト</button>
+                <button onclick="testLoad()">📈 負荷テスト</button>
+            </div>
+            
+            <div class="info">
+                <h3>🔗 関連リンク</h3>
+                <p><a href="/health" target="_blank">ヘルスチェック</a> | 
+                   <a href="/metrics" target="_blank">メトリクス</a> | 
+                   <a href="/api/info" target="_blank">API情報</a></p>
+            </div>
+        </div>
+        
+        <script>
+            let requestCount = 0;
+            const startTime = Date.now();
+            
+            function updateDateTime() {
+                document.getElementById('datetime').textContent = new Date().toLocaleString('ja-JP');
+            }
+            
+            function updateUptime() {
+                const uptime = Math.floor((Date.now() - startTime) / 1000);
+                document.getElementById('uptime').textContent = uptime + 's';
+            }
+            
+            function makeRequest() {
+                requestCount++;
+                document.getElementById('requests').textContent = requestCount;
+                updateDateTime();
+            }
+            
+            function testError() {
+                fetch('/error').catch(() => {
+                    alert('エラーが正常に生成されました（ログを確認してください）');
+                });
+            }
+            
+            function testLoad() {
+                for(let i = 0; i < 10; i++) {
+                    setTimeout(() => makeRequest(), i * 100);
+                }
+            }
+            
+            // 初期化
+            document.getElementById('hostname').textContent = window.location.hostname;
+            updateDateTime();
+            setInterval(updateDateTime, 1000);
+            setInterval(updateUptime, 1000);
+            makeRequest();
+        </script>
+    </body>
+    </html>
+
+---
+# Deployment for the sample application
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-app
+  namespace: sample-apps
+  labels:
+    app: sample-app
+    version: v1
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: sample-app
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: sample-app
+        version: v1
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.21-alpine
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        volumeMounts:
+        - name: html-content
+          mountPath: /usr/share/nginx/html
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: html-content
+        configMap:
+          name: sample-app-config
+      - name: nginx-config
+        configMap:
+          name: nginx-config
+
+---
+# Nginx configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: sample-apps
+data:
+  default.conf: |
+    server {
+        listen 80;
+        server_name localhost;
+        root /usr/share/nginx/html;
+        index index.html;
+        
+        # Main page
+        location / {
+            try_files $uri $uri/ =404;
+        }
+        
+        # Health check endpoint
+        location /health {
+            access_log off;
+            return 200 "healthy\n";
+            add_header Content-Type text/plain;
+        }
+        
+        # Metrics endpoint (basic)
+        location /metrics {
+            access_log off;
+            return 200 "# HELP nginx_requests_total Total requests\n# TYPE nginx_requests_total counter\nnginx_requests_total $request_id\n";
+            add_header Content-Type text/plain;
+        }
+        
+        # API info endpoint
+        location /api/info {
+            access_log off;
+            return 200 '{"app":"sample-app","version":"1.0","status":"running","hostname":"$hostname","timestamp":"$time_iso8601"}';
+            add_header Content-Type application/json;
+        }
+        
+        # Error test endpoint
+        location /error {
+            access_log off;
+            return 500 "Test error generated";
+        }
+        
+        # Enable gzip compression
+        gzip on;
+        gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+    }
+
+---
+# Service to expose the application
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-app
+  namespace: sample-apps
+  labels:
+    app: sample-app
+spec:
+  type: NodePort
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30080
+    protocol: TCP
+    name: http
+  selector:
+    app: sample-app
+
+---
+# ClusterIP service for internal communication
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-app-internal
+  namespace: sample-apps
+  labels:
+    app: sample-app
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  selector:
+    app: sample-app
+
+---
+# Ingress for external access (optional - requires ingress controller)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sample-app-ingress
+  namespace: sample-apps
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    kubernetes.io/ingress.class: "nginx"
+spec:
+  rules:
+  - host: sample-app.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: sample-app
+            port:
+              number: 80

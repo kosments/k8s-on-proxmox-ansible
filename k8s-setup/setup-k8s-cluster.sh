@@ -1,7 +1,53 @@
 #!/bin/bash
 
-# Kubernetes Cluster Setup Script
-# This script sets up a 3-node Kubernetes cluster on Proxmox VMs
+# =============================================================================
+# Kubernetes Cluster Setup Script for Proxmox VMs
+# =============================================================================
+# 
+# このスクリプトは、ProxmoxVE上のVMにKubernetesクラスターを構築します。
+# 
+# 【主な機能】
+# - 動的VM検出（config.shの設定に基づく）
+# - 全ノードへのKubernetes共通コンポーネント導入
+# - マスターノードの初期化（kubeadm init）
+# - CNI（Flannel）の自動インストール
+# - ワーカーノードの自動参加
+# - クラスター状態の検証
+# - 冪等性保証（再実行可能）
+# - 詳細なSSH接続診断とエラーハンドリング
+# 
+# 【実行フェーズ】
+# Phase 0: ディスク容量チェックとクリーンアップ
+# Phase 1: 全ノードへの共通セットアップ
+# Phase 2: マスターノードの初期化
+# Phase 3: CNI（Flannel）のインストール
+# Phase 4: ワーカーノードのクラスター参加
+# Phase 5: クラスター状態の検証
+# 
+# 【使用方法】
+# ./setup-k8s-cluster.sh
+# 
+# 【前提条件】
+# - create-vms.sh でVMが作成済み
+# - VMが起動中でSSH接続可能
+# 
+# 【出力ファイル】
+# - kubeconfig: kubectl用の設定ファイル
+# - join-command.txt: ワーカーノード参加用コマンド
+# 
+# 【kubectl使用方法】
+# Proxmoxホストでkubectlが利用できない場合：
+# 1. kubectl インストール（推奨）:
+#    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+#    chmod +x kubectl && mv kubectl /usr/local/bin/
+#    export KUBECONFIG=$PWD/kubeconfig
+#    kubectl get nodes
+# 
+# 2. スクリプト経由でクラスター管理:
+#    ./setup-k8s-cluster.sh status
+#    ./setup-k8s-cluster.sh logs
+# 
+# =============================================================================
 
 set -e
 
@@ -351,8 +397,35 @@ setup_master() {
     
     # Copy kubeconfig and join command locally (idempotent)
     local scp_opts="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
-    scp $scp_opts -i $SSH_KEY $SSH_USER@$host:/etc/kubernetes/admin.conf ./kubeconfig 2>/dev/null || true
-    scp $scp_opts -i $SSH_KEY $SSH_USER@$host:/tmp/kubeadm-join-command.txt ./join-command.txt 2>/dev/null || true
+    
+    log "Copying kubeconfig from master node..."
+    if scp $scp_opts -i $SSH_KEY $SSH_USER@$host:/etc/kubernetes/admin.conf ./kubeconfig 2>/dev/null; then
+        log "✓ kubeconfig successfully copied to ./kubeconfig"
+        chmod 600 ./kubeconfig
+    else
+        warn "✗ Failed to copy kubeconfig, attempting alternative method..."
+        # Alternative method: get kubeconfig content via SSH
+        remote_exec $host "cat /etc/kubernetes/admin.conf" > ./kubeconfig
+        if [ -s ./kubeconfig ]; then
+            log "✓ kubeconfig successfully retrieved via SSH"
+            chmod 600 ./kubeconfig
+        else
+            error "Failed to retrieve kubeconfig. Please check SSH connectivity and permissions."
+        fi
+    fi
+    
+    log "Copying join command..."
+    if scp $scp_opts -i $SSH_KEY $SSH_USER@$host:/tmp/kubeadm-join-command.txt ./join-command.txt 2>/dev/null; then
+        log "✓ join-command.txt successfully copied"
+    else
+        warn "✗ Failed to copy join command via scp, attempting alternative method..."
+        remote_exec $host "cat /tmp/kubeadm-join-command.txt" > ./join-command.txt
+        if [ -s ./join-command.txt ]; then
+            log "✓ join-command.txt successfully retrieved via SSH"
+        else
+            warn "Failed to retrieve join command. Worker nodes may need manual joining."
+        fi
+    fi
     
     log "Master node setup completed"
 }
@@ -365,12 +438,33 @@ install_cni() {
     
     remote_exec $host "
         export KUBECONFIG=/etc/kubernetes/admin.conf
-        # Check if Flannel is already installed (idempotent)
-        if ! kubectl get pods -n kube-flannel &>/dev/null; then
+        
+        # Check if Flannel namespace exists and has pods
+        if kubectl get namespace kube-flannel &>/dev/null && kubectl get pods -n kube-flannel --no-headers 2>/dev/null | grep -q .; then
+            echo 'Flannel CNI already installed and running'
+            kubectl get pods -n kube-flannel -o wide
+        else
             echo 'Installing Flannel CNI...'
             kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
-        else
-            echo 'Flannel CNI already installed'
+            
+            echo 'Waiting for Flannel pods to start...'
+            sleep 30
+            kubectl get pods -n kube-flannel -o wide
+            
+            # Wait for Flannel to be ready
+            echo 'Waiting for Flannel to be ready (up to 2 minutes)...'
+            timeout 120 bash -c '
+                while true; do
+                    ready_pods=\$(kubectl get pods -n kube-flannel --no-headers 2>/dev/null | grep -c \"Running\" || echo 0)
+                    total_pods=\$(kubectl get pods -n kube-flannel --no-headers 2>/dev/null | wc -l || echo 0)
+                    if [ \$total_pods -gt 0 ] && [ \$ready_pods -eq \$total_pods ]; then
+                        echo \"All Flannel pods are ready (\$ready_pods/\$total_pods)\"
+                        break
+                    fi
+                    echo \"Waiting for Flannel pods: \$ready_pods/\$total_pods ready\"
+                    sleep 10
+                done
+            ' || echo 'Timeout waiting for Flannel pods, but continuing...'
         fi
     "
     
@@ -418,8 +512,52 @@ verify_cluster() {
     
     remote_exec $host "
         export KUBECONFIG=/etc/kubernetes/admin.conf
+        echo '=== Node Status ==='
+        kubectl get nodes -o wide
+        echo ''
+        echo '=== All Pods Status ==='
+        kubectl get pods -A -o wide
+        echo ''
+        echo '=== Flannel Pods Status ==='
+        kubectl get pods -n kube-flannel -o wide
+        echo ''
+        echo '=== Node Conditions ==='
+        kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{\"\\t\"}{.status.conditions[?(@.type==\"Ready\")].status}{\"\\n\"}{end}'
+        echo ''
+        
+        # Check if all nodes are Ready
+        not_ready_nodes=\$(kubectl get nodes --no-headers | grep -v ' Ready ' | wc -l)
+        if [ \$not_ready_nodes -gt 0 ]; then
+            echo '⚠️  WARNING: Some nodes are not Ready. This might be due to CNI issues.'
+            echo 'If nodes remain NotReady after setup, run this manual fix:'
+            echo '  kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml'
+            echo '  kubectl get pods -n kube-flannel -w  # Wait for pods to be Running'
+            echo '  kubectl get nodes  # Verify nodes are Ready'
+        else
+            echo '✅ All nodes are Ready! Kubernetes cluster is fully operational.'
+        fi
+    "
+    
+    log "Waiting for nodes to become Ready (this may take a few minutes)..."
+    remote_exec $host "
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        timeout 300 bash -c '
+            while true; do
+                ready_count=\$(kubectl get nodes --no-headers | grep -c \" Ready \")
+                total_count=\$(kubectl get nodes --no-headers | wc -l)
+                echo \"Ready nodes: \$ready_count/\$total_count\"
+                if [ \"\$ready_count\" -eq \"\$total_count\" ] && [ \"\$total_count\" -gt 0 ]; then
+                    echo \"All nodes are Ready!\"
+                    break
+                fi
+                sleep 10
+            done
+        ' || echo 'Timeout waiting for nodes to become Ready. This is normal for initial setup.'
+        
+        echo ''
+        echo '=== Final Cluster Status ==='
         kubectl get nodes
-        kubectl get pods -A
+        kubectl get pods -A | grep -E '(NAME|kube-system|kube-flannel)'
     "
 }
 
@@ -605,9 +743,124 @@ main() {
     verify_cluster $master_ip
     
     log "Kubernetes cluster setup completed successfully!"
-    log "Kubeconfig saved to ./kubeconfig"
-    log "To use kubectl: export KUBECONFIG=\$PWD/kubeconfig"
+    
+    # Verify kubeconfig file exists and provide usage instructions
+    if [ -f "./kubeconfig" ] && [ -s "./kubeconfig" ]; then
+        log "✓ Kubeconfig saved to ./kubeconfig"
+        
+        # Check if kubectl is available on Proxmox host
+        if command -v kubectl &> /dev/null; then
+            log ""
+            log "kubectl is available on this host. Usage:"
+            log "  export KUBECONFIG=\$PWD/kubeconfig"
+            log "  kubectl get nodes"
+            log "  kubectl get pods -A"
+        else
+            log ""
+            log "kubectl is not installed on this Proxmox host."
+            log "Options:"
+            log "  1. Install kubectl on Proxmox host (RECOMMENDED):"
+            log "     curl -LO \"https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl\""
+            log "     chmod +x kubectl && sudo mv kubectl /usr/local/bin/"
+            log "     export KUBECONFIG=\$PWD/kubeconfig"
+            log "     kubectl get nodes"
+            log ""
+            log "  2. Use kubectl on master node via SSH:"
+            log "     ssh -i /root/.ssh/id_rsa ubuntu@$(get_vm_ip $MASTER_VM) 'sudo kubectl get nodes'"
+            log ""
+            log "  3. Use the cluster management script:"
+            log "     ./setup-k8s-cluster.sh status"
+        fi
+    else
+        warn "✗ Kubeconfig file is missing or empty!"
+        log "Manual kubeconfig retrieval:"
+        log "  ssh ubuntu@$(get_vm_ip $MASTER_VM) 'sudo cat /etc/kubernetes/admin.conf' > ./kubeconfig"
+        log "  chmod 600 ./kubeconfig"
+    fi
 }
+
+# Cluster management functions
+cluster_status() {
+    log "Checking Kubernetes cluster status..."
+    local master_ip=$(get_vm_ip $(get_master_vm))
+    
+    if [ -z "$master_ip" ]; then
+        error "No master VM found or master VM is skipped"
+    fi
+    
+    log "Connecting to master node at $master_ip..."
+    remote_exec $master_ip "
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        echo '=== Cluster Info ==='
+        kubectl cluster-info
+        echo ''
+        echo '=== Node Status ==='
+        kubectl get nodes -o wide
+        echo ''
+        echo '=== Pod Status ==='
+        kubectl get pods -A -o wide
+        echo ''
+        echo '=== Service Status ==='
+        kubectl get svc -A
+    "
+}
+
+cluster_logs() {
+    log "Fetching cluster logs..."
+    local master_ip=$(get_vm_ip $(get_master_vm))
+    
+    if [ -z "$master_ip" ]; then
+        error "No master VM found or master VM is skipped"
+    fi
+    
+    log "Fetching logs from master node at $master_ip..."
+    remote_exec $master_ip "
+        echo '=== kubelet logs (last 50 lines) ==='
+        journalctl -u kubelet -n 50 --no-pager
+        echo ''
+        echo '=== containerd logs (last 20 lines) ==='
+        journalctl -u containerd -n 20 --no-pager
+    "
+}
+
+show_usage() {
+    echo "Usage: $0 [command]"
+    echo ""
+    echo "Commands:"
+    echo "  (no args)  - Setup Kubernetes cluster (default)"
+    echo "  status     - Show cluster status"
+    echo "  logs       - Show cluster logs"
+    echo "  help       - Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $0              # Setup cluster"
+    echo "  $0 status       # Check cluster status"
+    echo "  $0 logs         # View logs"
+}
+
+# Parse command line arguments
+case "${1:-}" in
+    "status")
+        cluster_status
+        exit 0
+        ;;
+    "logs")
+        cluster_logs
+        exit 0
+        ;;
+    "help"|"--help"|"-h")
+        show_usage
+        exit 0
+        ;;
+    "")
+        # Default: run main setup
+        ;;
+    *)
+        echo "Unknown command: $1"
+        show_usage
+        exit 1
+        ;;
+esac
 
 # Check if running as root (allow root in Proxmox environment)
 if [[ $EUID -eq 0 ]]; then
