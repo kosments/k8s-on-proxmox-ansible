@@ -1,0 +1,45 @@
+# Kubernetes configuration files
+kubeconfig
+*.kubeconfig
+**/kubeconfig
+**/*.kubeconfig
+
+# Ansible sensitive files
+*.vault
+**/*.vault
+
+# SSH keys
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
