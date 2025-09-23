@@ -51,9 +51,21 @@ EOF
 setup_kubeconfig() {
     log "🔧 kubeconfigをセットアップ中..."
     
-    # マスターノードからkubeconfigを取得
-    log "マスターノードからkubeconfigを取得中..."
-    if ssh -o StrictHostKeyChecking=no ubuntu@${K8S_MASTER_IP} "sudo cat /etc/kubernetes/admin.conf" > kubeconfig; then
+    # マスターノードのIPを取得
+    local master_vm_id=$(get_master_vm)
+    if [[ -z "$master_vm_id" ]]; then
+        log "❌ マスターノードが見つかりません"
+        return 1
+    fi
+    
+    local master_ip=$(get_vm_ip $master_vm_id)
+    if [[ -z "$master_ip" ]]; then
+        log "❌ マスターノードのIPアドレスが取得できません"
+        return 1
+    fi
+    
+    log "マスターノード ($master_ip) からkubeconfigを取得中..."
+    if ssh -o StrictHostKeyChecking=no ubuntu@${master_ip} "sudo cat /etc/kubernetes/admin.conf" > kubeconfig; then
         log "✅ kubeconfigファイルを取得しました"
     else
         log "❌ kubeconfigファイルの取得に失敗しました"
