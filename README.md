@@ -36,6 +36,84 @@ kubectl apply -f sample-app.yaml
 - **VM 102**: 一時的にスキップ（設定で変更可能）
 - **合計**: 3ノードクラスター
 
+## 🏗️ システム構成図
+
+```mermaid
+graph TB
+    subgraph "外部アクセス"
+        Internet[Internet]
+        Domain[sampleapp.com]
+    end
+    
+    subgraph "物理環境"
+        Router[Wi-Fiルータ<br/>192.168.1.1]
+        Proxmox[Proxmox Host<br/>Ryzen 5600G<br/>32GB RAM<br/>1TB SSD<br/>192.168.10.108]
+    end
+    
+    subgraph "VM Layer"
+        LB[LB VM<br/>Nginx<br/>192.168.10.104]
+        Gateway[API Gateway VM<br/>Istio Gateway<br/>192.168.10.105]
+        GitOps[GitOps VM<br/>GitLab/ArgoCD<br/>192.168.10.106]
+        
+        subgraph "K8s Cluster (192.168.10.101-103)"
+            Master[k8s-master<br/>VM 101<br/>Control Plane]
+            Worker1[k8s-node1<br/>VM 102<br/>Worker Node]
+            Worker2[k8s-node2<br/>VM 103<br/>Worker Node]
+        end
+    end
+    
+    subgraph "K8s Services"
+        subgraph "istio-system namespace"
+            IstioGateway[Istio Gateway<br/>Load Balancer]
+            IstioProxy[Envoy Proxy]
+        end
+        
+        subgraph "sample-app namespace"
+            WebApp[Sample Web App<br/>Deployment]
+            WebService[Web Service<br/>ClusterIP]
+            WebIngress[Ingress<br/>sampleapp.com]
+        end
+        
+        subgraph "ops namespace"
+            NewRelic[New Relic Agent]
+            Prometheus[Prometheus]
+            Grafana[Grafana]
+            Loki[Loki]
+        end
+    end
+    
+    subgraph "External Services"
+        NewRelicSaaS[New Relic SaaS]
+        GitHub[GitHub Repository]
+    end
+    
+    Internet --> Domain
+    Domain --> Router
+    Router --> LB
+    LB --> Gateway
+    Gateway --> IstioGateway
+    IstioGateway --> WebIngress
+    WebIngress --> WebService
+    WebService --> WebApp
+    
+    Master --> Worker1
+    Master --> Worker2
+    WebApp -.-> Worker1
+    WebApp -.-> Worker2
+    
+    GitOps --> Master
+    NewRelic --> NewRelicSaaS
+    GitOps --> GitHub
+    
+    style Master fill:#e1f5fe
+    style Worker1 fill:#e1f5fe
+    style Worker2 fill:#e1f5fe
+    style LB fill:#fff3e0
+    style Gateway fill:#fff3e0
+    style GitOps fill:#f3e5f5
+    style WebApp fill:#e8f5e8
+```
+
 ## 📁 プロジェクト構成
 
 ```
@@ -61,7 +139,26 @@ k8s-on-proxmox-ansible/
 │   ├── istio/                   # Service Mesh
 │   └── argocd/                  # GitOps
 ├── 04-applications/             # アプリケーションマニフェスト
-│   └── sample-app.yaml          # サンプルアプリ
+│   ├── sample-app/              # サンプルアプリケーション
+│   │   ├── deployment.yaml      # デプロイメント
+│   │   ├── service.yaml         # サービス
+│   │   ├── ingress.yaml         # イングレス
+│   │   └── README.md            # アプリ説明
+│   └── README.md                # アプリケーション管理
+├── 05-monitoring/               # 監視・運用基盤
+│   ├── newrelic/                # New Relic設定
+│   ├── prometheus/              # Prometheus設定
+│   └── README.md                # 監視基盤説明
+├── 06-infrastructure/           # インフラ拡張
+│   ├── loadbalancer/            # Nginx LB設定
+│   ├── api-gateway/             # API Gateway設定
+│   └── README.md                # インフラ説明
+├── 07-gitops/                   # GitOps環境
+│   ├── gitlab/                  # GitLab設定
+│   ├── argocd/                  # ArgoCD設定
+│   └── README.md                # GitOps説明
+├── deploy-to-proxmox.sh         # デプロイ自動化スクリプト
+├── PROJECT-STATUS.md            # プロジェクト進捗管理
 └── README.md                    # このファイル
 ```
 

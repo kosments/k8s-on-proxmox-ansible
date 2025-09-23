@@ -1,0 +1,142 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: sample-app
+  labels:
+    app: sample-web-app
+data:
+  default.conf: |
+    server {
+        listen 80;
+        server_name _;
+        
+        # ヘルスチェック用エンドポイント
+        location /health {
+            access_log off;
+            return 200 "healthy\n";
+            add_header Content-Type text/plain;
+        }
+        
+        # メトリクス用エンドポイント
+        location /metrics {
+            access_log off;
+            return 200 "# HELP sample_app_info Sample application info\n# TYPE sample_app_info gauge\nsample_app_info{version=\"v1.0.0\"} 1\n";
+            add_header Content-Type text/plain;
+        }
+        
+        # メインコンテンツ
+        location / {
+            root /usr/share/nginx/html;
+            index index.html;
+            try_files $uri $uri/ /index.html;
+        }
+        
+        # ログ設定
+        access_log /var/log/nginx/access.log;
+        error_log /var/log/nginx/error.log;
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-content
+  namespace: sample-app
+  labels:
+    app: sample-web-app
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Sample Web Application</title>
+        <style>
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                margin: 0;
+                padding: 0;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .container {
+                background: white;
+                padding: 2rem;
+                border-radius: 10px;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+                text-align: center;
+                max-width: 600px;
+                margin: 1rem;
+            }
+            h1 {
+                color: #333;
+                margin-bottom: 1rem;
+            }
+            .info {
+                background: #f8f9fa;
+                padding: 1rem;
+                border-radius: 5px;
+                margin: 1rem 0;
+                text-align: left;
+            }
+            .status {
+                display: inline-block;
+                padding: 0.5rem 1rem;
+                background: #28a745;
+                color: white;
+                border-radius: 20px;
+                font-weight: bold;
+            }
+            .links {
+                margin-top: 2rem;
+            }
+            .links a {
+                display: inline-block;
+                margin: 0.5rem;
+                padding: 0.75rem 1.5rem;
+                background: #007bff;
+                color: white;
+                text-decoration: none;
+                border-radius: 5px;
+                transition: background 0.3s;
+            }
+            .links a:hover {
+                background: #0056b3;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🚀 Sample Web Application</h1>
+            <div class="status">✅ Running on Kubernetes</div>
+            
+            <div class="info">
+                <h3>📊 Application Information</h3>
+                <p><strong>App Name:</strong> <span id="app-name">Loading...</span></p>
+                <p><strong>Version:</strong> <span id="app-version">Loading...</span></p>
+                <p><strong>Node:</strong> <span id="node-name">Loading...</span></p>
+                <p><strong>Pod:</strong> <span id="pod-name">Loading...</span></p>
+                <p><strong>Namespace:</strong> <span id="pod-namespace">Loading...</span></p>
+            </div>
+            
+            <div class="links">
+                <a href="/health">Health Check</a>
+                <a href="/metrics">Metrics</a>
+                <a href="https://github.com/your-repo/k8s-on-proxmox-ansible" target="_blank">GitHub</a>
+            </div>
+        </div>
+        
+        <script>
+            // 環境変数から情報を取得
+            document.getElementById('app-name').textContent = 'Sample Web Application';
+            document.getElementById('app-version').textContent = 'v1.0.0';
+            document.getElementById('node-name').textContent = window.location.hostname;
+            document.getElementById('pod-name').textContent = 'sample-web-app-' + Math.random().toString(36).substr(2, 9);
+            document.getElementById('pod-namespace').textContent = 'sample-app';
+        </script>
+    </body>
+    </html>
