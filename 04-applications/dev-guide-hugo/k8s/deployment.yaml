@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dev-guide
+  namespace: dev-guide
+  labels:
+    app: dev-guide
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dev-guide
+  template:
+    metadata:
+      labels:
+        app: dev-guide
+    spec:
+      # GitHub Container Registryからプルする場合はimagePullSecretsを設定
+      # kubectl create secret docker-registry ghcr-secret \
+      #   --docker-server=ghcr.io \
+      #   --docker-username=YOUR_GITHUB_USERNAME \
+      #   --docker-password=YOUR_GITHUB_TOKEN \
+      #   -n dev-guide
+      # imagePullSecrets:
+      # - name: ghcr-secret
+      containers:
+      - name: dev-guide
+        # GitHub Container Registry
+        # image: ghcr.io/kosments/k8s-on-proxmox-ansible/dev-guide:latest
+        # 
+        # 開発時はローカルビルド
+        image: dev-guide:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 3
+          periodSeconds: 5

@@ -1,0 +1,27 @@
+baseURL = "/"
+languageCode = "ja"
+title = "Home K8s 開発ガイド"
+theme = "book"
+
+# Book theme settings
+[params]
+  BookTheme = "auto"
+  BookToC = true
+  BookSection = "/"
+  BookRepo = "https://github.com/kosments/k8s-on-proxmox-ansible"
+  BookEditPath = "edit/master/04-applications/dev-guide-hugo/content"
+  BookDateFormat = "2006-01-02"
+  BookSearch = true
+
+[menu]
+  [[menu.after]]
+    name = "GitHub"
+    url = "https://github.com/kosments/k8s-on-proxmox-ansible"
+    weight = 10
+
+[markup]
+  [markup.highlight]
+    style = "dracula"
+  [markup.goldmark.renderer]
+    unsafe = true
+
