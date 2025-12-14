@@ -1,526 +1,188 @@
 # k8s-on-proxmox-ansible
 
-ProxmoxVE上にKubernetesクラスターを自動構築するためのツールセットです。
+Proxmox VE上にk3s Kubernetesクラスターを構築するためのシンプルなツールセットです。
 
-## 🚀 クイックスタート（推奨：Shell Script）
+## 🎯 特徴
 
-### 必要な手順（4ステップ）
+- **シンプル**: 3つのスクリプトで完結
+- **確実**: テンプレートクローン方式で安定したVM作成
+- **軽量**: k3sによる軽量Kubernetesクラスター
+- **トラブルシューティングしやすい**: 各ステップが明確に分離
 
-1. **VM作成**: `01-vm-creation/create-vms.sh`
-2. **Kubernetes構築**: `02-k8s-cluster/setup-k8s-cluster.sh`
-3. **基盤サービス**: `03-manifests/` の各種セットアップスクリプト
-4. **アプリケーション**: `04-applications/` のマニフェスト適用
-
-```bash
-# 1. VM作成（Proxmoxホスト上で実行）
-cd 01-vm-creation
-./create-vms.sh
-
-# 2. Kubernetesクラスター構築（Proxmoxホスト上で実行）
-cd ../02-k8s-cluster
-./setup-k8s-cluster.sh
-
-# 3. 監視システム（オプション）
-cd ../03-manifests/monitoring
-./setup-monitoring.sh
-
-# 4. サンプルアプリケーション（オプション）
-cd ../../04-applications
-kubectl apply -f sample-app.yaml
-```
-
-### 構築されるクラスター
-
-- **Master**: 1台（VM 101）
-- **Worker**: 2台（VM 103, 104）
-- **VM 102**: 一時的にスキップ（設定で変更可能）
-- **合計**: 3ノードクラスター
-
-## 🏗️ システム構成図
-
-```mermaid
-graph TB
-    subgraph "外部アクセス"
-        Internet[Internet]
-        Domain[sampleapp.com]
-    end
-    
-    subgraph "物理環境"
-        Router[Wi-Fiルータ<br/>192.168.1.1]
-        Proxmox[Proxmox Host<br/>Ryzen 5600G<br/>32GB RAM<br/>1TB SSD<br/>192.168.10.108]
-    end
-    
-    subgraph "VM Layer"
-        LB[LB VM<br/>Nginx<br/>192.168.10.104]
-        Gateway[API Gateway VM<br/>Istio Gateway<br/>192.168.10.105]
-        GitOps[GitOps VM<br/>GitLab/ArgoCD<br/>192.168.10.106]
-        
-        subgraph "K8s Cluster (192.168.10.101-103)"
-            Master[k8s-master<br/>VM 101<br/>Control Plane]
-            Worker1[k8s-node1<br/>VM 102<br/>Worker Node]
-            Worker2[k8s-node2<br/>VM 103<br/>Worker Node]
-        end
-    end
-    
-    subgraph "K8s Services"
-        subgraph "istio-system namespace"
-            IstioGateway[Istio Gateway<br/>Load Balancer]
-            IstioProxy[Envoy Proxy]
-        end
-        
-        subgraph "sample-app namespace"
-            WebApp[Sample Web App<br/>Deployment]
-            WebService[Web Service<br/>ClusterIP]
-            WebIngress[Ingress<br/>sampleapp.com]
-        end
-        
-        subgraph "ops namespace"
-            NewRelic[New Relic Agent]
-            Prometheus[Prometheus]
-            Grafana[Grafana]
-            Loki[Loki]
-        end
-    end
-    
-    subgraph "External Services"
-        NewRelicSaaS[New Relic SaaS]
-        GitHub[GitHub Repository]
-    end
-    
-    Internet --> Domain
-    Domain --> Router
-    Router --> LB
-    LB --> Gateway
-    Gateway --> IstioGateway
-    IstioGateway --> WebIngress
-    WebIngress --> WebService
-    WebService --> WebApp
-    
-    Master --> Worker1
-    Master --> Worker2
-    WebApp -.-> Worker1
-    WebApp -.-> Worker2
-    
-    GitOps --> Master
-    NewRelic --> NewRelicSaaS
-    GitOps --> GitHub
-    
-    style Master fill:#e1f5fe
-    style Worker1 fill:#e1f5fe
-    style Worker2 fill:#e1f5fe
-    style LB fill:#fff3e0
-    style Gateway fill:#fff3e0
-    style GitOps fill:#f3e5f5
-    style WebApp fill:#e8f5e8
-```
-
-## 📁 プロジェクト構成
+## 📁 構成
 
 ```
 k8s-on-proxmox-ansible/
-├── config.sh                    # 共通設定ファイル
-├── 01-vm-creation/              # VM作成関連
-│   ├── create-vms.sh            # VMの作成・管理（推奨）
-│   ├── alternative-ansible-setup/  # Ansible代替セットアップ
-│   │   ├── create_vm.yml        # VM作成用プレイブック
-│   │   ├── playbook.yml         # メインプレイブック
-│   │   └── inventory.ini        # インベントリファイル
-│   └── README.md                # VM作成の詳細手順
-├── 02-k8s-cluster/              # Kubernetes構築関連
-│   ├── setup-k8s-cluster.sh     # Kubernetesクラスター構築（推奨）
-│   ├── alternative-ansible-setup/  # Ansible代替セットアップ
-│   │   ├── ansible/             # Ansibleロール
-│   │   ├── sequential-playbook.yml  # K8s構築用playbook
-│   │   └── inventory.ini        # Ansibleインベントリ
-│   └── README.md                # K8s構築の詳細手順
-├── 03-manifests/                # 基盤サービス（監視、ログ、Service Mesh）
-│   ├── monitoring/              # Prometheus + Grafana
-│   ├── logging/                 # Grafana Loki
-│   ├── istio/                   # Service Mesh
-│   └── argocd/                  # GitOps
-├── 04-applications/             # アプリケーションマニフェスト
-│   ├── sample-app/              # サンプルアプリケーション
-│   │   ├── deployment.yaml      # デプロイメント
-│   │   ├── service.yaml         # サービス
-│   │   ├── ingress.yaml         # イングレス
-│   │   └── README.md            # アプリ説明
-│   └── README.md                # アプリケーション管理
-├── 05-monitoring/               # 監視・運用基盤
-│   ├── newrelic/                # New Relic設定
-│   ├── prometheus/              # Prometheus設定
-│   └── README.md                # 監視基盤説明
-├── 06-infrastructure/           # インフラ拡張
-│   ├── loadbalancer/            # Nginx LB設定
-│   ├── api-gateway/             # API Gateway設定
-│   └── README.md                # インフラ説明
-├── 07-gitops/                   # GitOps環境
-│   ├── gitlab/                  # GitLab設定
-│   ├── argocd/                  # ArgoCD設定
-│   └── README.md                # GitOps説明
-├── deploy-to-proxmox.sh         # デプロイ自動化スクリプト
-├── PROJECT-STATUS.md            # プロジェクト進捗管理
-└── README.md                    # このファイル
+├── scripts/
+│   ├── 01-clone-vms.sh      # Step 1: VMをクローン作成
+│   ├── 02-setup-k3s.sh      # Step 2: k3sをインストール
+│   └── 03-verify-cluster.sh # Step 3: クラスター確認
+├── kubeconfig               # kubectl設定ファイル（生成される）
+└── README.md
 ```
 
-## 🛠️ セットアップ方法の選択
+## 🚀 クイックスタート
 
-### 推奨：Shell Script方式
+### 前提条件
 
-- **簡単**: 依存関係なし、すぐに実行可能
-- **高速**: 直接SSH実行で効率的
-- **デバッグしやすい**: ログが見やすい
+- Proxmox VE 7.x以上
+- テンプレートVM（ID: 9000）が作成済み
+- SSH鍵が設定済み（`/root/.ssh/id_rsa`）
 
-### 代替：Ansible方式
-
-- **冪等性**: 同じ状態を保証
-- **スケーラブル**: 大規模環境向け
-- **設定管理**: YAML形式での管理
-
-詳細は各ディレクトリのREADMEを参照してください。
-
-## 🚀 Proxmoxへの効率的なデプロイ
-
-### 方法1: 自動化スクリプト（推奨）
-
-自動化スクリプトを使用することで、ローカルの変更を即座にProxmoxに反映できます。
+### Step 1: VMをクローン作成
 
 ```bash
-# 初回セットアップ
-chmod +x deploy-to-proxmox.sh
-
-# 環境変数設定（必要に応じて）
-export PROXMOX_HOST="192.168.10.108"  # ProxmoxのIP
-export PROXMOX_USER="root"             # Proxmoxユーザー
-
-# 全体同期
-./deploy-to-proxmox.sh sync
-
-# 監視設定のみデプロイ
-./deploy-to-proxmox.sh monitoring
-
-# VM作成のみ実行
-./deploy-to-proxmox.sh vm-create
-
-# K8sセットアップのみ実行
-./deploy-to-proxmox.sh k8s-setup
-
-# システム状況確認
-./deploy-to-proxmox.sh status
-
-# SSH接続
-./deploy-to-proxmox.sh ssh
-
-# ヘルプ表示
-./deploy-to-proxmox.sh help
+# Proxmoxホスト上で実行
+cd /root/k8s-on-proxmox-ansible/scripts
+chmod +x *.sh
+./01-clone-vms.sh
 ```
 
-**メリット:**
+作成されるVM:
+- VM 101: k8s-master (192.168.10.111)
+- VM 102: k8s-worker1 (192.168.10.112)
+- VM 103: k8s-worker2 (192.168.10.113)
 
-- ローカルでの編集 → 自動同期 → リモート実行
-- 部分的なデプロイが可能
-- SSH接続テスト機能内蔵
-- エラーハンドリング機能
-
-### 方法2: Remote SSH（Cursor/VS Code）
+### Step 2: k3sをインストール
 
 ```bash
-# SSH設定（~/.ssh/config）
-Host proxmox
-    HostName 192.168.10.108  # ProxmoxのIP
-    User root
-    IdentityFile ~/.ssh/id_rsa
-    ServerAliveInterval 60
+./02-setup-k3s.sh
 ```
 
-1. Cursorで `Cmd+Shift+P` → "Remote-SSH: Connect to Host"
-2. "proxmox" を選択
-3. リモートでCursorが開き、直接編集・実行可能
-
-**メリット:**
-
-- Proxmox上で直接編集・実行
-- リアルタイムファイル同期
-- ローカルと同じ開発体験
-- ターミナル統合
-
-### 方法3: 従来の手動同期
+### Step 3: クラスター確認
 
 ```bash
-# Proxmoxコンソールで実行
-git clone https://github.com/your-repo/k8s-on-proxmox-ansible.git
-cd k8s-on-proxmox-ansible
-git pull  # 更新時
-```
-
-**メリット:**
-
-- 最もシンプルな方法
-- 依存関係なし
-- Git履歴の完全な同期
-
-### 🎯 推奨ワークフロー
-
-1. **開発時**: Remote SSH（方法2）で直接編集・テスト
-2. **デプロイ時**: 自動化スクリプト（方法1）で確実な同期・実行
-3. **緊急時**: 手動同期（方法3）でシンプルに対応
-
-## ⚙️ 設定のカスタマイズ
-
-`config.sh`を編集することで、VM構成やスキップ設定を変更できます：
-
-```bash
-# VM構成
-VM_IDS=(101 102 103 104)
-VM_NAMES=("k8s-master" "k8s-node1" "k8s-node2" "k8s-node3")
-VM_IPS=("192.168.10.101" "192.168.10.102" "192.168.10.103" "192.168.10.104")
-
-# スキップ設定
-SKIP_VM_101=false  # マスターノード
-SKIP_VM_102=false  # ワーカーノード1
-SKIP_VM_103=false  # ワーカーノード2
-SKIP_VM_104=true   # ワーカーノード3（デフォルトでスキップ）
+./03-verify-cluster.sh
 ```
 
 ## 📋 システム要件
 
-### Proxmox VE環境
+### Proxmox環境
 
-- ProxmoxVE 7.x以上
-- 利用可能ストレージ: 350GB以上
-- ネットワーク: 192.168.10.0/24
+- CPU: 4コア以上
+- メモリ: 16GB以上
+- ストレージ: 200GB以上
 
 ### 作成されるVM仕様
 
-- **OS**: Ubuntu 22.04 LTS
-- **メモリ**: 4GB/VM
-- **CPU**: 2コア/VM
-- **ディスク**: 100GB/VM
+| 項目 | 値 |
+|------|-----|
+| OS | Ubuntu 22.04 LTS |
+| メモリ | 4GB / VM |
+| CPU | 2コア / VM |
+| ディスク | 50GB / VM |
+| ネットワーク | 192.168.10.111-113 |
 
-## 🚀 **次のステップ: 監視・サンプルアプリ・Service Mesh**
+## 🔧 kubectl の使用方法
 
-基本的なKubernetesクラスターが完成しました！以下の手順で本格的な環境を構築できます：
-
-### 📊 **1. 監視スタック（Prometheus + Grafana）**
-
-```bash
-cd 03-manifests/monitoring
-chmod +x setup-monitoring.sh
-./setup-monitoring.sh
-```
-
-**アクセス方法:**
-
-- Grafana: `http://<node-ip>:30300` (admin/admin123)
-- 人気ダッシュボード: 315, 6417, 7249, 10000
-
-### 📝 **2. ログ集約（Grafana Loki）**
+### Proxmoxホストから
 
 ```bash
-cd 03-manifests/logging
-chmod +x setup-logging.sh
-./setup-logging.sh
-```
-
-**LogQLクエリ例:**
-
-- `{namespace="default"}` - 名前空間のログ
-- `{app="nginx"} |= "error"` - エラーログ
-- `rate({namespace="default"}[5m])` - ログレート
-
-### 🎯 **3. サンプルアプリケーション**
-
-```bash
-kubectl apply -f 04-applications/sample-app.yaml
-```
-
-**アクセス方法:**
-
-- `http://<node-ip>:30080`
-- Port Forward: `kubectl port-forward -n sample-apps svc/sample-app 8080:80`
-
-### 🕸️ **4. Service Mesh（Istio）**
-
-```bash
-cd 03-manifests/istio
-chmod +x setup-istio.sh
-./setup-istio.sh
-```
-
-**主要コンポーネント:**
-
-- Kiali: Service Mesh可視化
-- Jaeger: 分散トレーシング
-- Ingress Gateway: 外部アクセス
-
-### 🔄 **5. 統合セットアップ（推奨順序）**
-
-```bash
-# 1. 基本クラスター（完了済み）
-cd 02-k8s-cluster && ./setup-k8s-cluster.sh
-
-# 2. 監視システム
-cd ../03-manifests/monitoring && ./setup-monitoring.sh
-
-# 3. ログ集約
-cd ../logging && ./setup-logging.sh
-
-# 4. サンプルアプリ
-kubectl apply -f ../04-applications/sample-app.yaml
-
-# 5. Service Mesh
-cd ../03-manifests/istio && ./setup-istio.sh
-```
-
-## 🛠️ トラブルシューティング
-
-### kubectl が使用できない場合
-
-Proxmoxホストでkubectlが使用できない場合の対処法：
-
-```bash
-# kubectl をProxmoxホストにインストール
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-chmod +x kubectl && sudo mv kubectl /usr/local/bin/
-
-# kubeconfigを設定
-cd 02-k8s-cluster
-export KUBECONFIG=$PWD/kubeconfig
+export KUBECONFIG=/root/k8s-on-proxmox-ansible/kubeconfig
 kubectl get nodes
 ```
 
-### 詳細なトラブルシューティング
+### ローカルPC（Mac/Linux）から
 
-詳細なトラブルシューティング情報は各ディレクトリのREADMEを参照してください：
+```bash
+# kubeconfigをコピー
+scp root@192.168.10.108:/root/k8s-on-proxmox-ansible/kubeconfig ~/.kube/config-k3s
 
-- [VM作成のトラブルシューティング](01-vm-creation/README.md#トラブルシューティング)
-- [K8s構築のトラブルシューティング](02-k8s-cluster/README.md#トラブルシューティング)
+# 使用
+export KUBECONFIG=~/.kube/config-k3s
+kubectl get nodes
+```
 
----
+## 🔍 トラブルシューティング
 
-## Proxmox 基本用語
+### VMにSSH接続できない
 
-### 仮想化関連
+```bash
+# Ping確認
+ping 192.168.10.101
 
-- **VM (Virtual Machine)**: 完全仮想化された仮想マシン。KVMを使用。
-- **CT (Container)**: LXCベースのコンテナ。VMより軽量。
-- **Template**: VMやCTのテンプレート。新規作成時のベースとなる。
-- **Clone**: テンプレートから作成されたVMやCTのコピー。
-  - **Full Clone**: 完全なコピー。元のディスクと独立。
-  - **Linked Clone**: 差分のみを保存。元のディスクに依存。
+# SSH確認
+nc -zv 192.168.10.101 22
 
-### ストレージ関連
+# VMコンソールを確認
+qm terminal 101
+```
 
-- **local**: ノードのローカルディレクトリ（/var/lib/proxmox）
-- **local-lvm**: ノードのLVMストレージ。デフォルトのVM用ストレージ。
-- **ZFS**: より高度なファイルシステム。スナップショットやRAID機能。
+### k3sが起動しない
 
-### ネットワーク関連
+```bash
+# マスターノードで確認
+ssh ubuntu@192.168.10.101
+sudo systemctl status k3s
+sudo journalctl -u k3s -f
+```
 
-- **vmbr0**: デフォルトの仮想ブリッジ。通常、物理NICと接続。
-- **VLAN**: 仮想LANによるネットワークの分離。
-- **Cloud-Init**: VM初期設定用のツール（IPアドレス、SSHキーなど）。
+### ワーカーがクラスターに参加しない
 
-### システム関連
+```bash
+# ワーカーノードで確認
+ssh ubuntu@192.168.10.102
+sudo systemctl status k3s-agent
+sudo journalctl -u k3s-agent -f
 
-- **Node**: Proxmoxをインストールした物理サーバー。
-- **Cluster**: 複数のノードをまとめた集合。
-- **Pool**: VMやCTを論理的にグループ化する単位。
-- **DC (Datacenter)**: クラスタ全体の設定を管理する単位。
+# トークン再取得
+ssh ubuntu@192.168.10.101 "sudo cat /var/lib/rancher/k3s/server/node-token"
+```
 
-### ID体系
+## 🔄 クラスター再構築
 
-- **VMID**: VMやCTを識別する番号（100-999999）
-  - 100-999: ユーザー用
-  - 1000-999999: システム用推奨
+```bash
+# 全VM削除
+for id in 101 102 103; do
+    qm stop $id --skiplock
+    qm destroy $id --purge
+done
 
-## SSH
+# 再構築
+./scripts/01-clone-vms.sh
+./scripts/02-setup-k3s.sh
+```
 
-```sh
-# ssh to host vm
+## 📊 構成図
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  Proxmox Host                       │
+│                 192.168.10.108                      │
+│  ┌─────────────────────────────────────────────┐   │
+│  │              vmbr0 (Bridge)                  │   │
+│  └─────────────────────────────────────────────┘   │
+│         │              │              │            │
+│  ┌──────┴─────┐ ┌──────┴─────┐ ┌──────┴─────┐     │
+│  │ k8s-master │ │k8s-worker1 │ │k8s-worker2 │     │
+│  │   VM 101   │ │   VM 102   │ │   VM 103   │     │
+│  │192.168.10  │ │192.168.10  │ │192.168.10  │     │
+│  │   .111     │ │   .112     │ │   .113     │     │
+│  │            │ │            │ │            │     │
+│  │  k3s       │ │ k3s-agent  │ │ k3s-agent  │     │
+│  │  server    │ │            │ │            │     │
+│  └────────────┘ └────────────┘ └────────────┘     │
+└─────────────────────────────────────────────────────┘
+```
+
+## 📚 参考資料
+
+- [Proxmox VE公式ドキュメント](https://pve.proxmox.com/pve-docs/)
+- [k3s公式ドキュメント](https://docs.k3s.io/)
+- [Kubernetes公式ドキュメント](https://kubernetes.io/ja/docs/home/)
+
+## SSH接続情報
+
+```bash
+# Proxmoxホスト
 ssh root@192.168.10.108
 
-# ssh to k8s-master
-ssh ubuntu@192.168.10.101
+# k8s-master
+ssh ubuntu@192.168.10.111
 
-# ssh to k8s-node1
-ssh ubuntu@192.168.10.102
+# k8s-worker1
+ssh ubuntu@192.168.10.112
 
-# ssh to k8s-node2
-ssh ubuntu@192.168.10.103
-```
-
-## 同ネットワーク内の VM 宛に 22番ポートが空いているか確認する方法
-
-`lsof` は自分のローカルマシン上のソケットを確認するコマンドなので、リモート VM のポート確認には使えない。
-リモートのポート確認には以下の方法を使用。
-
-### 1. `nc` (netcat) で確認
-
-```bash
-nc -zv <VM_IP> 22
-# 例:
-nc -zv 192.168.10.101 22
-nc -zv 192.168.10.102 22
-nc -zv 192.168.10.103 22
-# -z : ポートスキャンモード（データ送信なし）
-# -v : 詳細出力
-# 成功すれば succeeded! と表示されます。
-```
-
-### 2. telnet で確認
-
-```bash
-telnet <VM_IP> 22
-# 成功すると SSH のバナーが返ることがあります
-# 失敗すると接続拒否やタイムアウトになります
-```
-
-### 3. ssh で接続テスト
-
-```bash
-ssh -v <user>@<VM_IP>
-# -v オプションで詳細な接続情報を表示
-# 「Connection refused」 → ポート閉じている
-# 「Timed out」 → ネットワーク到達不可
-```
-
-### 4. ping でネットワーク到達確認
-
-```bash
-ping <VM_IP>
-# まず ICMP が通るか確認すると SSH の接続可否の判断がしやすくなります
-```
-
-## ホストキーの管理
-
-VMを再作成した場合や、SSHホストキーが変更された場合の対処方法：
-
-### 1. 特定のホストキーの削除
-
-```bash
-# 特定のIPアドレスのホストキーを削除
-ssh-keygen -f "~/.ssh/known_hosts" -R "192.168.10.101"
-ssh-keygen -f "~/.ssh/known_hosts" -R "192.168.10.102"
-ssh-keygen -f "~/.ssh/known_hosts" -R "192.168.10.103"
-```
-
-### 2. 既知のホストキーをすべて削除
-
-```bash
-# すべてのホストキーを削除（注意: すべてのホストの情報が削除されます）
-rm ~/.ssh/known_hosts
-```
-
-### 3. SSHの初回接続時に自動的にホストキーを受け入れる
-
-```bash
-# StrictHostKeyCheckingをnoに設定して接続
-ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.101
-```
-
-### 4. 現在のホストキーの確認
-
-```bash
-# ホストキーのフィンガープリントを表示
-ssh-keygen -l -f /etc/ssh/ssh_host_ed25519_key.pub
+# k8s-worker2
+ssh ubuntu@192.168.10.113
 ```

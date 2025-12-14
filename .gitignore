@@ -3,6 +3,8 @@ kubeconfig
 *.kubeconfig
 **/kubeconfig
 **/*.kubeconfig
+join-command.txt
+selected-ips.txt
 
 # Ansible sensitive files
 *.vault
@@ -43,3 +45,5 @@ Thumbs.db
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+proxmox_access.md
