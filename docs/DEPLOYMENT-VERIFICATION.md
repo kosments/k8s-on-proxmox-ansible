@@ -31,7 +31,7 @@ cd /Users/kosments/dev/personal-dev/life-mng-repo/k8s-on-proxmox-ansible
 ```bash
 # ProxmoxホストにSSH接続
 ssh root@192.168.10.108
-# パスワード: Bassa627
+# パスワード: 環境変数PROXMOX_PASSを設定、またはproxmox_access.mdを参照
 
 # リポジトリをclone
 cd /root
@@ -62,9 +62,9 @@ cd /root/k8s-on-proxmox-ansible/01-vm-creation
 sleep 180
 
 # SSH接続テスト
-sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.111 "hostname"
-sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.112 "hostname"
-sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.113 "hostname"
+sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.201 "hostname"
+sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.202 "hostname"
+sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.203 "hostname"
 ```
 
 **期待される結果**: 各VMのホスト名が表示される
@@ -82,6 +82,7 @@ cd /root/k8s-on-proxmox-ansible/scripts
 **実行時間**: 約5分
 
 **期待される結果**:
+
 - マスターノードにk3sがインストールされる
 - ワーカーノードがクラスターに参加する
 - すべてのノードが`Ready`状態になる
@@ -162,4 +163,3 @@ tail -f /var/log/pve/tasks/active
 ```
 
 詳細は [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) を参照してください。
-

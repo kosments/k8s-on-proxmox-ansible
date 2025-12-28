@@ -9,7 +9,7 @@
 - ✅ ローカルPCでリポジトリが準備されている
 - ✅ リポジトリがGitHubにpushされている
 - ✅ Proxmoxホスト（192.168.10.108）が起動している
-- ✅ ProxmoxホストにSSH接続できる（root/Bassa627）
+- ✅ ProxmoxホストにSSH接続できる（環境変数`PROXMOX_PASS`を設定、または`proxmox_access.md`を参照）
 
 ## 🚀 実行手順
 
@@ -49,7 +49,7 @@ cd /Users/kosments/dev/personal-dev/life-mng-repo/k8s-on-proxmox-ansible
 ```bash
 # ProxmoxホストにSSH接続
 ssh root@192.168.10.108
-# パスワード: Bassa627
+# パスワード: 環境変数PROXMOX_PASSを設定、またはproxmox_access.mdを参照
 
 # リポジトリをclone
 cd /root
@@ -74,9 +74,10 @@ cd /root/k8s-on-proxmox-ansible/01-vm-creation
 **実行時間**: 約5-10分
 
 **確認ポイント**:
+
 - ✅ 3つのVM（101, 102, 103）が作成される
 - ✅ 各VMが起動する
-- ✅ 固定IPアドレスが設定される（111, 112, 113）
+- ✅ 固定IPアドレスが設定される（201, 202, 203）
 
 ### Phase 4: SSH接続確認
 
@@ -85,7 +86,7 @@ cd /root/k8s-on-proxmox-ansible/01-vm-creation
 sleep 180
 
 # SSH接続テスト
-for ip in 192.168.10.111 192.168.10.112 192.168.10.113; do
+for ip in 192.168.10.201 192.168.10.202 192.168.10.203; do
     echo "Testing $ip..."
     sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@${ip} "hostname" && echo "✅ OK" || echo "❌ FAILED"
 done
@@ -106,6 +107,7 @@ cd /root/k8s-on-proxmox-ansible/scripts
 **実行時間**: 約5分
 
 **確認ポイント**:
+
 - ✅ マスターノードにk3sがインストールされる
 - ✅ ワーカーノードがクラスターに参加する
 - ✅ すべてのノードが`Ready`状態になる
@@ -147,7 +149,7 @@ k8s-worker2    Ready    <none>                 4m    v1.28.x
 ## ✅ 検証完了チェックリスト
 
 - [ ] リポジトリがProxmoxホストにcloneされている
-- [ ] VM 101, 102, 103が正常に作成され、起動している
+- [ ] VM 201, 102, 103が正常に作成され、起動している
 - [ ] すべてのVMにSSH接続できる（ubuntu/ubuntu）
 - [ ] k3sクラスターが構築されている
 - [ ] すべてのノードがReady状態
@@ -172,4 +174,3 @@ git pull origin master
 - [QUICK-START.md](./QUICK-START.md) - クイックスタート
 - [WORKFLOW.md](./WORKFLOW.md) - 作業フローと設計方針
 - [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) - トラブルシューティング
-

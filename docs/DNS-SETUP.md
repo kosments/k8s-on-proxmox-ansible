@@ -11,8 +11,8 @@
 sudo nano /etc/hosts
 
 # 以下を追加（Master NodeのIPを指定）
-192.168.10.111  chat.k8s.local
-192.168.10.111  guide.k8s.local
+192.168.10.201  chat.k8s.local
+192.168.10.201  guide.k8s.local
 ```
 
 ### Windows
@@ -20,8 +20,8 @@ sudo nano /etc/hosts
 1. `C:\Windows\System32\drivers\etc\hosts` を管理者権限で開く
 2. 以下を追加:
 ```
-192.168.10.111  chat.k8s.local
-192.168.10.111  guide.k8s.local
+192.168.10.201  chat.k8s.local
+192.168.10.201  guide.k8s.local
 ```
 
 ## 方法2: ローカルDNSサーバー（dnsmasq）
@@ -38,7 +38,7 @@ brew install dnsmasq
 nano /opt/homebrew/etc/dnsmasq.conf
 
 # 以下を追加
-address=/k8s.local/192.168.10.111
+address=/k8s.local/192.168.10.201
 ```
 
 ### Linux
@@ -53,7 +53,7 @@ sudo yum install dnsmasq      # CentOS/RHEL
 sudo nano /etc/dnsmasq.conf
 
 # 以下を追加
-address=/k8s.local/192.168.10.111
+address=/k8s.local/192.168.10.201
 ```
 
 ### 起動

@@ -22,7 +22,11 @@ set -euo pipefail
 # 設定
 PROXMOX_HOST="${PROXMOX_HOST:-192.168.10.108}"
 PROXMOX_USER="${PROXMOX_USER:-root}"
-PROXMOX_PASS="${PROXMOX_PASS:-Bassa627}"
+# パスワードは環境変数またはproxmox_access.mdから読み込む（git管理外）
+if [ -z "$PROXMOX_PASS" ] && [ -f "$HOME/../proxmox_access.md" ]; then
+    PROXMOX_PASS=$(grep -i "password:" "$HOME/../proxmox_access.md" | awk -F': ' '{print $2}' | head -1)
+fi
+PROXMOX_PASS="${PROXMOX_PASS:-}"
 REMOTE_PATH="/root/k8s-on-proxmox-ansible"
 LOCAL_PATH="$(pwd)"
 GIT_REPO_URL="${GIT_REPO_URL:-https://github.com/kosments/k8s-on-proxmox-ansible.git}"

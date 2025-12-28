@@ -13,7 +13,7 @@
 ```bash
 # ProxmoxホストにSSH接続
 ssh root@192.168.10.108
-# パスワード: Bassa627
+# パスワード: 環境変数PROXMOX_PASSを設定、またはproxmox_access.mdを参照
 
 # リポジトリをclone（初回のみ）
 cd /root
@@ -36,6 +36,7 @@ cd /Users/kosments/dev/personal-dev/life-mng-repo/k8s-on-proxmox-ansible
 ```
 
 ### 2. ドキュメントの確認
+
 - [WORKFLOW.md](./WORKFLOW.md) - 作業フローと設計方針
 - [EXECUTION-PLAN.md](./EXECUTION-PLAN.md) - 実行計画
 - [DEPLOYMENT.md](./DEPLOYMENT.md) - デプロイメント手順
@@ -58,20 +59,22 @@ qm list | grep -E "101|102|103"
 **実行時間**: 約5-10分（VM作成と起動待ちを含む）
 
 **期待される結果**:
-- VM 101 (k8s-master) が作成され、192.168.10.111で起動
-- VM 102 (k8s-worker1) が作成され、192.168.10.112で起動
-- VM 103 (k8s-worker2) が作成され、192.168.10.113で起動
+
+- VM 201 (k8s-master) が作成され、192.168.10.201で起動
+- VM 202 (k8s-worker1) が作成され、192.168.10.202で起動
+- VM 203 (k8s-worker2) が作成され、192.168.10.203で起動
 
 ### Step 2: SSH接続確認（VM起動後、約2-3分待機）
 
 ```bash
 # Proxmoxホストまたは管理PCから実行
-sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.111 "hostname"
-sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.112 "hostname"
-sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.113 "hostname"
+sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.201 "hostname"
+sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.202 "hostname"
+sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.203 "hostname"
 ```
 
 **確認ポイント**:
+
 - ✅ 各VMにSSH接続できること
 - ✅ cloud-initでSSHサービスが起動していること
 
@@ -88,6 +91,7 @@ cd /root/k8s-on-proxmox-ansible/scripts
 **実行時間**: 約5分
 
 **期待される結果**:
+
 - マスターノードにk3sがインストールされる
 - ワーカーノードがクラスターに参加する
 - すべてのノードが`Ready`状態になる
@@ -109,6 +113,7 @@ kubectl get svc -A
 ```
 
 **確認ポイント**:
+
 - ✅ すべてのノードが`Ready`状態
 - ✅ システムPodが正常に動作していること
 
@@ -159,10 +164,9 @@ sudo cat /var/log/cloud-init.log
 
 ```bash
 # VM内で確認
-ssh ubuntu@192.168.10.111
+ssh ubuntu@192.168.10.201
 sudo systemctl status k3s
 sudo journalctl -u k3s -f
 ```
 
 詳細は [TROUBLESHOOTING.md](../docs/TROUBLESHOOTING.md) を参照してください。
-

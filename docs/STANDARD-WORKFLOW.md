@@ -24,9 +24,9 @@ cd /root/k8s-on-proxmox-ansible/scripts
 ```
 
 **このスクリプトが行うこと**:
-- マスターノード（VM 101）にk3sをインストール
+- マスターノード（VM 201）にk3sをインストール
 - クラスター参加トークンを取得
-- ワーカーノード（VM 102, 103）をクラスターに参加
+- ワーカーノード（VM 202, 103）をクラスターに参加
 - クラスター状態の確認
 - kubeconfigファイルの生成
 
@@ -94,7 +94,7 @@ cd /root/k8s-on-proxmox-ansible/scripts
 
 ```bash
 # マスターノードで確認
-ssh ubuntu@192.168.10.111
+ssh ubuntu@192.168.10.201
 sudo systemctl status k3s
 sudo journalctl -u k3s -f
 ```

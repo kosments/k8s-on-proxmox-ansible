@@ -8,6 +8,7 @@ Proxmox VE上にk3s Kubernetesクラスターを構築するためのシンプ�
 - **確実**: テンプレートクローン方式で安定したVM作成
 - **軽量**: k3sによる軽量Kubernetesクラスター
 - **トラブルシューティングしやすい**: 各ステップが明確に分離
+- **ARP固定を回避**: MACアドレス自動生成でネットワーク問題を防止
 
 ## 📁 構成
 
@@ -18,7 +19,10 @@ k8s-on-proxmox-ansible/
 ├── scripts/
 │   ├── 02-setup-k3s.sh      # Step 2: k3sをインストール
 │   └── 03-verify-cluster.sh # Step 3: クラスター確認
-├── kubeconfig               # kubectl設定ファイル（生成される）
+├── 02-k8s-cluster/
+│   ├── setup-kubeconfig.sh  # kubeconfig設定
+│   └── quick-kubeconfig.sh  # 簡易kubeconfig取得
+├── docs/                    # 詳細ドキュメント
 └── README.md
 ```
 
@@ -27,7 +31,7 @@ k8s-on-proxmox-ansible/
 ### 前提条件
 
 - Proxmox VE 7.x以上
-- SSH鍵が設定済み、またはパスワード認証が可能（root/Bassa627）
+- SSH鍵が設定済み、またはパスワード認証が可能（環境変数`PROXMOX_PASS`を設定、または`proxmox_access.md`を参照）
 - 十分なストレージ容量（VM 3台 × 50GB = 約150GB）
 - リポジトリがGitHubにpushされている
 
@@ -41,10 +45,13 @@ k8s-on-proxmox-ansible/
 
 ```bash
 # ローカルPCで実行
-cd /Users/kosments/dev/personal-dev/life-mng-repo/k8s-on-proxmox-ansible
+cd /path/to/k8s-on-proxmox-ansible
 
 # 変更をpush
 git push origin master
+
+# 環境変数を設定（必要に応じて）
+export PROXMOX_PASS="your-password"
 
 # Proxmoxホストにclone
 ./deploy-to-proxmox.sh clone
@@ -55,6 +62,7 @@ git push origin master
 ```bash
 # Proxmoxホストで実行
 ssh root@192.168.10.108
+# パスワード: 環境変数PROXMOX_PASSを設定、またはproxmox_access.mdを参照
 cd /root
 git clone https://github.com/kosments/k8s-on-proxmox-ansible.git
 cd k8s-on-proxmox-ansible
@@ -70,9 +78,12 @@ cd /root/k8s-on-proxmox-ansible/01-vm-creation
 ```
 
 作成されるVM:
-- VM 101: k8s-master (192.168.10.111)
-- VM 102: k8s-worker1 (192.168.10.112)
-- VM 103: k8s-worker2 (192.168.10.113)
+
+- VM 201: k8s-master (192.168.10.201)
+- VM 202: k8s-worker1 (192.168.10.202)
+- VM 203: k8s-worker2 (192.168.10.203)
+
+**注意**: VM IDは201-203、IPアドレスは192.168.10.201-203を使用します。ARP固定を避けるため、MACアドレスは自動生成されます。
 
 ### Step 2: k3sをインストール
 
@@ -115,14 +126,15 @@ cd /root/k8s-on-proxmox-ansible/scripts
 | メモリ | 4GB / VM |
 | CPU | 2コア / VM |
 | ディスク | 50GB / VM |
-| ネットワーク | 192.168.10.111-113 |
+| ネットワーク | 192.168.10.201-203 |
+| VM ID | 201-203 |
 
 ## 🔧 kubectl の使用方法
 
 ### Proxmoxホストから
 
 ```bash
-export KUBECONFIG=/root/k8s-on-proxmox-ansible/kubeconfig
+export KUBECONFIG=/root/k8s-on-proxmox-ansible/02-k8s-cluster/kubeconfig
 kubectl get nodes
 ```
 
@@ -130,105 +142,74 @@ kubectl get nodes
 
 ```bash
 # kubeconfigをコピー
-scp root@192.168.10.108:/root/k8s-on-proxmox-ansible/kubeconfig ~/.kube/config-k3s
+scp root@192.168.10.108:/root/k8s-on-proxmox-ansible/02-k8s-cluster/kubeconfig ~/.kube/config-k3s
 
-# 使用
+# kubectlを使用
 export KUBECONFIG=~/.kube/config-k3s
 kubectl get nodes
 ```
 
-## 🔍 トラブルシューティング
+## 🔄 再起動時の対応
+
+Proxmoxホストが再起動した場合、以下を実行してください：
+
+```bash
+# VMが起動していることを確認
+qm list | grep -E "201|202|203"
+
+# kubeconfigを再取得
+cd /root/k8s-on-proxmox-ansible/02-k8s-cluster
+./setup-kubeconfig.sh
+export KUBECONFIG=$(pwd)/kubeconfig
+kubectl get nodes
+```
+
+詳細は [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) を参照してください。
+
+## 🛠️ トラブルシューティング
 
 ### VMにSSH接続できない
 
 ```bash
-# Ping確認
-ping 192.168.10.101
-
-# SSH確認
-nc -zv 192.168.10.101 22
-
-# VMコンソールを確認
-qm terminal 101
+# ProxmoxのWeb UIからVMコンソールにアクセス
+# VM内で以下を実行:
+sudo systemctl start ssh
+sudo systemctl enable ssh
+sudo passwd ubuntu  # パスワードを設定
 ```
 
-### k3sが起動しない
+### IPアドレス競合
+
+VM IDを201-203、IPアドレスを192.168.10.201-203に設定しています。ARP固定を避けるため、MACアドレスは自動生成されます。
+
+### クラスターに接続できない
 
 ```bash
-# マスターノードで確認
-ssh ubuntu@192.168.10.101
-sudo systemctl status k3s
-sudo journalctl -u k3s -f
+# kubeconfigを再取得
+cd /root/k8s-on-proxmox-ansible/02-k8s-cluster
+./setup-kubeconfig.sh
+export KUBECONFIG=$(pwd)/kubeconfig
+kubectl get nodes
 ```
 
-### ワーカーがクラスターに参加しない
+詳細は [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) を参照してください。
 
-```bash
-# ワーカーノードで確認
-ssh ubuntu@192.168.10.102
-sudo systemctl status k3s-agent
-sudo journalctl -u k3s-agent -f
+## 📚 ドキュメント
 
-# トークン再取得
-ssh ubuntu@192.168.10.101 "sudo cat /var/lib/rancher/k3s/server/node-token"
-```
+- [docs/FULL-DEPLOYMENT-GUIDE.md](docs/FULL-DEPLOYMENT-GUIDE.md) - 完全デプロイメントガイド
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) - デプロイメント手順
+- [docs/WORKFLOW.md](docs/WORKFLOW.md) - 作業フローと設計方針
+- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) - トラブルシューティングガイド
 
-## 🔄 クラスター再構築
+## 🔐 セキュリティ
 
-```bash
-# 全VM削除
-for id in 101 102 103; do
-    qm stop $id --skiplock
-    qm destroy $id --purge
-done
+- パスワード情報は環境変数`PROXMOX_PASS`で管理、または`proxmox_access.md`（git管理外）を参照
+- kubeconfigファイルは機密情報を含むため、Gitにコミットされません
 
-# 再構築
-cd 01-vm-creation
-./create-vms.sh
-cd ../scripts
-./02-setup-k3s.sh
-```
+## 📝 ライセンス
 
-## 📊 構成図
+MIT License
 
-```
-┌─────────────────────────────────────────────────────┐
-│                  Proxmox Host                       │
-│                 192.168.10.108                      │
-│  ┌─────────────────────────────────────────────┐   │
-│  │              vmbr0 (Bridge)                  │   │
-│  └─────────────────────────────────────────────┘   │
-│         │              │              │            │
-│  ┌──────┴─────┐ ┌──────┴─────┐ ┌──────┴─────┐     │
-│  │ k8s-master │ │k8s-worker1 │ │k8s-worker2 │     │
-│  │   VM 101   │ │   VM 102   │ │   VM 103   │     │
-│  │192.168.10  │ │192.168.10  │ │192.168.10  │     │
-│  │   .111     │ │   .112     │ │   .113     │     │
-│  │            │ │            │ │            │     │
-│  │  k3s       │ │ k3s-agent  │ │ k3s-agent  │     │
-│  │  server    │ │            │ │            │     │
-│  └────────────┘ └────────────┘ └────────────┘     │
-└─────────────────────────────────────────────────────┘
-```
+## 🤝 コントリビューション
 
-## 📚 参考資料
-
-- [Proxmox VE公式ドキュメント](https://pve.proxmox.com/pve-docs/)
-- [k3s公式ドキュメント](https://docs.k3s.io/)
-- [Kubernetes公式ドキュメント](https://kubernetes.io/ja/docs/home/)
-
-## SSH接続情報
-
-```bash
-# Proxmoxホスト
-ssh root@192.168.10.108
-
-# k8s-master
-ssh ubuntu@192.168.10.111
-
-# k8s-worker1
-ssh ubuntu@192.168.10.112
-
-# k8s-worker2
-ssh ubuntu@192.168.10.113
-```
+プルリクエストを歓迎します！

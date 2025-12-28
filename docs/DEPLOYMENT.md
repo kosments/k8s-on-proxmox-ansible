@@ -46,7 +46,7 @@ git push origin main
 ```bash
 # ProxmoxホストにSSH接続
 ssh root@192.168.10.108
-# パスワード: Bassa627
+# パスワード: 環境変数PROXMOX_PASSを設定、またはproxmox_access.mdを参照
 
 # リポジトリをclone
 cd /root
@@ -159,4 +159,3 @@ scp -r /path/to/k8s-on-proxmox-ansible root@192.168.10.108:/root/
 - リポジトリのURLは実際のリポジトリに合わせて変更してください
 - `.gitignore`で除外されているファイル（kubeconfigなど）は転送されません
 - 機密情報（パスワードなど）は`config.sh`に含まれないように注意してください
-

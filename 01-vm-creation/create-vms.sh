@@ -186,11 +186,12 @@ create_vm() {
     
     # Create VM
     log "Creating VM $vm_id with ${VM_MEMORY}MB RAM, ${VM_CORES} cores..."
+    # MACアドレスを自動生成（固定しない）してARP固定を避ける
     qm create $vm_id \
         --name $vm_name \
         --memory $VM_MEMORY \
         --cores $VM_CORES \
-        --net0 virtio,bridge=$bridge \
+        --net0 virtio,bridge=$bridge,firewall=1 \
         --ostype l26
     
     # Import disk
@@ -208,6 +209,7 @@ create_vm() {
     
     # Proxmoxのcloud-init設定（--cicustomではなく、個別オプションを使用）
     # SSHサービスとパスワード認証の設定は、VM起動後にスクリプトで実行
+    # MACアドレスは自動生成（固定しない）してARP固定を避ける
     qm set $vm_id \
         --scsihw virtio-scsi-pci \
         --scsi0 ${storage}:vm-${vm_id}-disk-0 \
@@ -220,7 +222,8 @@ create_vm() {
         --cipassword $SSH_PASSWORD \
         --sshkeys /root/.ssh/id_rsa.pub \
         --ipconfig0 ip=${vm_ip}/24,gw=$gateway \
-        --nameserver $nameserver
+        --nameserver $nameserver \
+        --net0 virtio,bridge=$bridge,firewall=1
     
     log "Cloud-init configured for VM $vm_id"
     

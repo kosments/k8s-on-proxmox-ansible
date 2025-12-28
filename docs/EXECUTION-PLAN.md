@@ -60,9 +60,9 @@ qm list | grep -E "101|102|103"
 sleep 180
 
 # SSH接続テスト
-sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.111 "hostname"
-sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.112 "hostname"
-sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.113 "hostname"
+sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.201 "hostname"
+sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.202 "hostname"
+sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no ubuntu@192.168.10.203 "hostname"
 ```
 
 ### ステップ5: k3sクラスター構築

@@ -47,3 +47,10 @@ ehthumbs.db
 Thumbs.db
 
 proxmox_access.md
+
+# Proxmox access information (environment-specific)
+# Use environment variables or proxmox_access.md (outside this repo)
+*.access.md
+*access*.md
+*.env.local
+*.env.*.local

@@ -46,8 +46,8 @@ net0: virtio=BC:24:11:B4:23:DE,bridge=vmbr0
 
 # 出力例:
 # [INFO] === IP競合チェック開始 ===
-# [INFO] 範囲: 192.168.10.111 - 192.168.10.130
-# [WARN] 192.168.10.111 は使用中 - スキップ
+# [INFO] 範囲: 192.168.10.201 - 192.168.10.130
+# [WARN] 192.168.10.201 は使用中 - スキップ
 # [INFO] VM 1: 192.168.10.115 (空き確認済み)
 ```
 
@@ -93,10 +93,10 @@ ping 192.168.10.101
 
 ```bash
 # ポート22が開いているか確認
-nc -zv 192.168.10.111 22
+nc -zv 192.168.10.201 22
 
 # SSHバナーを確認
-echo | nc 192.168.10.111 22
+echo | nc 192.168.10.201 22
 ```
 
 ### 解決方法
@@ -166,7 +166,7 @@ sudo journalctl -u k3s-agent -f
 
 1. **マスターへの接続確認**:
 ```bash
-nc -zv 192.168.10.111 6443
+nc -zv 192.168.10.201 6443
 ```
 
 2. **トークンを再取得して参加**:
@@ -176,7 +176,7 @@ sudo cat /var/lib/rancher/k3s/server/node-token
 
 # ワーカーで再参加
 /usr/local/bin/k3s-agent-uninstall.sh
-curl -sfL https://get.k3s.io | K3S_URL=https://192.168.10.111:6443 K3S_TOKEN=<token> sh -
+curl -sfL https://get.k3s.io | K3S_URL=https://192.168.10.201:6443 K3S_TOKEN=<token> sh -
 ```
 
 ---

@@ -5,9 +5,10 @@
 
 set -e
 
-PROXMOX_HOST="192.168.10.108"
-PROXMOX_USER="root"
-PROXMOX_PASS="Bassa627"
+PROXMOX_HOST="${PROXMOX_HOST:-192.168.10.108}"
+PROXMOX_USER="${PROXMOX_USER:-root}"
+# パスワードは環境変数から読み込む（git管理外）
+PROXMOX_PASS="${PROXMOX_PASS:-}"
 REMOTE_PATH="/root/k8s-on-proxmox-ansible"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
