@@ -24,6 +24,7 @@ PROXMOX_HOST="${PROXMOX_HOST:-192.168.10.108}"
 PROXMOX_USER="${PROXMOX_USER:-root}"
 REMOTE_PATH="/root/k8s-on-proxmox-ansible"
 LOCAL_PATH="$(pwd)"
+GIT_REPO_URL="${GIT_REPO_URL:-https://github.com/kosments/k8s-on-proxmox-ansible.git}"
 
 # カラー出力
 RED='\033[0;31m'
@@ -56,7 +57,32 @@ test_ssh_connection() {
     fi
 }
 
-# リモートディレクトリ準備
+# リモートディレクトリ準備（Git clone）
+clone_repository() {
+    log "Cloning repository from Git..."
+    ssh "$PROXMOX_USER@$PROXMOX_HOST" "
+        if [ -d '$REMOTE_PATH' ] && [ -d '$REMOTE_PATH/.git' ]; then
+            log 'Repository already exists. Pulling latest changes...'
+            cd '$REMOTE_PATH'
+            git pull origin main || git pull origin master || true
+        elif [ -d '$REMOTE_PATH' ]; then
+            warn 'Directory exists but is not a git repository. Backing up and cloning...'
+            mv '$REMOTE_PATH' '$REMOTE_PATH.backup.\$(date +%Y%m%d_%H%M%S)'
+            cd /root
+            git clone '$GIT_REPO_URL' k8s-on-proxmox-ansible
+        else
+            cd /root
+            git clone '$GIT_REPO_URL' k8s-on-proxmox-ansible
+        fi
+        
+        # スクリプトに実行権限を付与
+        cd '$REMOTE_PATH'
+        find . -name '*.sh' -type f -exec chmod +x {} \;
+        log 'Repository cloned and scripts made executable'
+    "
+}
+
+# リモートディレクトリ準備（ファイル転送用）
 prepare_remote_directory() {
     log "Preparing remote directory..."
     ssh "$PROXMOX_USER@$PROXMOX_HOST" "
@@ -151,15 +177,15 @@ create_vms() {
     " "Executing VM creation script"
 }
 
-# K8s セットアップ実行
+# K8s セットアップ実行（k3s）
 setup_k8s() {
-    log "Setting up Kubernetes on Proxmox..."
+    log "Setting up Kubernetes (k3s) on Proxmox..."
     
     execute_remote "
-        cd 02-k8s-cluster
-        chmod +x setup-k8s-cluster.sh
-        ./setup-k8s-cluster.sh
-    " "Executing K8s setup script"
+        cd scripts
+        chmod +x 02-setup-k3s.sh
+        ./02-setup-k3s.sh
+    " "Executing k3s setup script"
 }
 
 # ステータス確認
@@ -189,7 +215,8 @@ show_help() {
     echo "Usage: $0 [command]"
     echo
     echo "Commands:"
-    echo "  sync              Sync all files to Proxmox"
+    echo "  clone             Clone repository from Git (recommended)"
+    echo "  sync              Sync all files to Proxmox (rsync)"
     echo "  monitoring        Sync and setup monitoring"
     echo "  vm-create         Create VMs"
     echo "  k8s-setup         Setup Kubernetes cluster"
@@ -200,7 +227,12 @@ show_help() {
     echo "Environment Variables:"
     echo "  PROXMOX_HOST      Proxmox host IP (default: 192.168.10.108)"
     echo "  PROXMOX_USER      Proxmox user (default: root)"
+    echo "  GIT_REPO_URL      Git repository URL (default: https://github.com/kosments/k8s-on-proxmox-ansible.git)"
     echo
+    echo "Examples:"
+    echo "  $0 clone          # Clone repository from Git (recommended)"
+    echo "  $0 sync           # Sync files using rsync"
+    echo "  $0 vm-create      # Create VMs after syncing"
 }
 
 # SSH接続開始
@@ -221,6 +253,10 @@ main() {
     echo -e "${NC}"
     
     case $command in
+        "clone")
+            test_ssh_connection
+            clone_repository
+            ;;
         "sync")
             test_ssh_connection
             prepare_remote_directory
@@ -234,8 +270,21 @@ main() {
             ;;
         "vm-create")
             test_ssh_connection
-            prepare_remote_directory
-            sync_files "vm-create"
+            if [ -d "$LOCAL_PATH/.git" ]; then
+                # Gitリポジトリの場合はclone推奨
+                log "Detected Git repository. Consider using 'clone' command instead."
+                read -p "Use Git clone? (y/N): " -n 1 -r
+                echo
+                if [[ $REPLY =~ ^[Yy]$ ]]; then
+                    clone_repository
+                else
+                    prepare_remote_directory
+                    sync_files "vm-create"
+                fi
+            else
+                prepare_remote_directory
+                sync_files "vm-create"
+            fi
             create_vms
             ;;
         "k8s-setup")

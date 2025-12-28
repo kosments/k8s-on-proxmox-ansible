@@ -6,11 +6,10 @@ metadata:
   labels:
     app: dev-guide
 spec:
-  type: NodePort
+  type: ClusterIP  # Ingress経由でアクセスするためClusterIPに変更
   ports:
   - port: 80
     targetPort: 80
-    nodePort: 30080
   selector:
     app: dev-guide
 

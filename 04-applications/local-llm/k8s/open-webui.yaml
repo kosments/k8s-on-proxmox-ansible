@@ -1,0 +1,72 @@
+---
+# Open WebUI用永続ボリューム（チャット履歴保存用）
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: open-webui-data
+  namespace: local-llm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: local-path
+---
+# Open WebUI Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: open-webui
+  namespace: local-llm
+  labels:
+    app: open-webui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: open-webui
+  template:
+    metadata:
+      labels:
+        app: open-webui
+    spec:
+      containers:
+      - name: open-webui
+        image: ghcr.io/open-webui/open-webui:main
+        ports:
+        - containerPort: 8080
+        env:
+        - name: OLLAMA_BASE_URL
+          value: "http://ollama.local-llm.svc.cluster.local:11434"
+        - name: WEBUI_AUTH
+          value: "false"  # 初期設定用、本番では有効化推奨
+        volumeMounts:
+        - name: webui-data
+          mountPath: /app/backend/data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "1"
+      volumes:
+      - name: webui-data
+        persistentVolumeClaim:
+          claimName: open-webui-data
+---
+# Open WebUI Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: open-webui
+  namespace: local-llm
+spec:
+  selector:
+    app: open-webui
+  ports:
+  - port: 80
+    targetPort: 8080
+  type: ClusterIP
+

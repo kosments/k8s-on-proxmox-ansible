@@ -36,9 +36,15 @@ else
 fi
 
 # Additional VM creation specific configuration
-GATEWAY="192.168.10.1"
-NAMESERVER="8.8.8.8"
-SSH_PASSWORD="ubuntu"
+# config.shから読み込まれる値を使用（STORAGE, BRIDGE, GATEWAY, NAMESERVER, SSH_USER, SSH_PASSWORD）
+# デフォルト値の設定（config.shにない場合）
+GATEWAY="${GATEWAY:-192.168.10.1}"
+NAMESERVER="${NAMESERVER:-8.8.8.8}"
+SSH_PASSWORD="${SSH_PASSWORD:-ubuntu}"
+STORAGE="${STORAGE:-local-lvm}"
+BRIDGE="${BRIDGE:-vmbr0}"
+CLOUD_IMAGE_PATH="/var/lib/vz/template/iso/ubuntu-22.04-server-cloudimg-amd64.img"
+CLOUD_IMAGE_URL="https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img"
 
 # Colors for output
 RED='\033[0;31m'
@@ -70,6 +76,18 @@ check_proxmox() {
     fi
     
     log "Proxmox VE environment detected"
+}
+
+# Check if VM should be skipped (optional skip mechanism)
+should_skip_vm() {
+    local vm_id=$1
+    case $vm_id in
+        101) [ "${SKIP_VM_101:-false}" = "true" ] && return 0 || return 1 ;;
+        102) [ "${SKIP_VM_102:-false}" = "true" ] && return 0 || return 1 ;;
+        103) [ "${SKIP_VM_103:-false}" = "true" ] && return 0 || return 1 ;;
+        104) [ "${SKIP_VM_104:-false}" = "true" ] && return 0 || return 1 ;;
+        *) return 1 ;;
+    esac
 }
 
 
@@ -148,6 +166,10 @@ create_vm() {
     local vm_name=$2
     local vm_ip=$3
     
+    # 変数の確認とデフォルト値設定
+    local storage="${STORAGE:-local-lvm}"
+    local bridge="${BRIDGE:-vmbr0}"
+    
     # Check if VM should be skipped
     if should_skip_vm $vm_id; then
         log "Skipping creation for VM $vm_id ($vm_name) - marked as skip"
@@ -168,28 +190,59 @@ create_vm() {
         --name $vm_name \
         --memory $VM_MEMORY \
         --cores $VM_CORES \
-        --net0 virtio,bridge=$BRIDGE \
+        --net0 virtio,bridge=$bridge \
         --ostype l26
     
     # Import disk
-    log "Importing disk for VM $vm_id..."
-    qm importdisk $vm_id "$CLOUD_IMAGE_PATH" $VM_STORAGE
+    log "Importing disk for VM $vm_id to storage: $storage..."
+    qm importdisk $vm_id "$CLOUD_IMAGE_PATH" $storage
     
     # Configure VM first to attach the disk
     log "Configuring VM $vm_id..."
-    qm set $vm_id \
-        --scsihw virtio-scsi-pci \
-        --scsi0 ${VM_STORAGE}:vm-${vm_id}-disk-0 \
-        --boot c \
-        --bootdisk scsi0 \
-        --ide2 ${VM_STORAGE}:cloudinit \
-        --serial0 socket \
-        --vga serial0 \
-        --ciuser $SSH_USER \
-        --cipassword $SSH_PASSWORD \
-        --sshkeys /root/.ssh/id_rsa.pub \
-        --ipconfig0 ip=${vm_ip}/24,gw=$GATEWAY \
-        --nameserver $NAMESERVER
+    
+    local gateway="${GATEWAY:-192.168.10.1}"
+    local nameserver="${NAMESERVER:-8.8.8.8}"
+    
+    # Cloud-initユーザーデータをVMのcloud-initドライブに設定
+    log "Configuring cloud-init for VM $vm_id..."
+    
+    # Cloud-initユーザーデータファイルを確認・アップロード
+    local user_data_file="${SCRIPT_DIR}/cloud-init-user-data.yaml"
+    if [ -f "$user_data_file" ]; then
+        log "Cloud-init user-data file found: $user_data_file"
+        # Proxmoxのストレージにアップロード（ローカルストレージの場合）
+        # または、cicustomオプションで直接参照
+        qm set $vm_id \
+            --scsihw virtio-scsi-pci \
+            --scsi0 ${storage}:vm-${vm_id}-disk-0 \
+            --boot c \
+            --bootdisk scsi0 \
+            --ide2 ${storage}:cloudinit \
+            --serial0 socket \
+            --vga serial0 \
+            --cicustom "user=${user_data_file}" \
+            --ciuser $SSH_USER \
+            --cipassword $SSH_PASSWORD \
+            --sshkeys /root/.ssh/id_rsa.pub \
+            --ipconfig0 ip=${vm_ip}/24,gw=$gateway \
+            --nameserver $nameserver
+    else
+        log "Cloud-init user-data file not found, using basic cloud-init settings"
+        # 基本的なcloud-init設定のみ
+        qm set $vm_id \
+            --scsihw virtio-scsi-pci \
+            --scsi0 ${storage}:vm-${vm_id}-disk-0 \
+            --boot c \
+            --bootdisk scsi0 \
+            --ide2 ${storage}:cloudinit \
+            --serial0 socket \
+            --vga serial0 \
+            --ciuser $SSH_USER \
+            --cipassword $SSH_PASSWORD \
+            --sshkeys /root/.ssh/id_rsa.pub \
+            --ipconfig0 ip=${vm_ip}/24,gw=$gateway \
+            --nameserver $nameserver
+    fi
     
     # Now resize the disk after it's attached
     log "Resizing disk to $VM_DISK_SIZE for VM $vm_id..."
@@ -258,12 +311,26 @@ verify_vms() {
 
 # Main execution
 main() {
+    # 設定値の確認とデフォルト値の設定
+    STORAGE="${STORAGE:-local-lvm}"
+    BRIDGE="${BRIDGE:-vmbr0}"
+    VM_STORAGE="${STORAGE}"
+    GATEWAY="${GATEWAY:-192.168.10.1}"
+    NAMESERVER="${NAMESERVER:-8.8.8.8}"
+    
+    # 設定値の確認とデフォルト値の設定
+    STORAGE="${STORAGE:-local-lvm}"
+    BRIDGE="${BRIDGE:-vmbr0}"
+    GATEWAY="${GATEWAY:-192.168.10.1}"
+    NAMESERVER="${NAMESERVER:-8.8.8.8}"
+    
     log "Starting Proxmox VM creation for Kubernetes cluster..."
     log "Configuration:"
     log "  Memory: ${VM_MEMORY}MB per VM"
     log "  CPU cores: ${VM_CORES} per VM"
     log "  Disk size: ${VM_DISK_SIZE} per VM (ample space for Kubernetes)"
-    log "  Storage: ${VM_STORAGE}"
+    log "  Storage: ${STORAGE}"
+    log "  Bridge: ${BRIDGE}"
     log ""
     log "VM Skip Status:"
     log "  VM 101 (k8s-master): $([ "$SKIP_VM_101" = true ] && echo "SKIP" || echo "CREATE")"

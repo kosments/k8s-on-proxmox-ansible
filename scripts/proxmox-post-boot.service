@@ -1,0 +1,15 @@
+[Unit]
+Description=Proxmox Post-Boot Setup Script
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/root/k8s-on-proxmox-ansible/scripts/proxmox-post-boot-setup.sh
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

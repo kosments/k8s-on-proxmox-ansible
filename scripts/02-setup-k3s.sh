@@ -6,19 +6,31 @@
 # 使用方法: ./02-setup-k3s.sh
 #
 # 前提条件:
-#   - 01-clone-vms.sh でVMが作成済み
+#   - 01-vm-creation/create-vms.sh でVMが作成済み
 #   - VMにSSH接続可能
 #
 # 特徴:
-#   - selected-ips.txt から自動的にIPアドレスを読み込み
-#   - 手動指定も可能
+#   - config.sh から自動的にIPアドレスを読み込み
+#   - k3sクラスターを構築
 #
 # =============================================================================
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SELECTED_IPS_FILE="$SCRIPT_DIR/../selected-ips.txt"
+CONFIG_FILE="$SCRIPT_DIR/../config.sh"
+
+# config.shから設定を読み込む
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+else
+    echo "ERROR: Configuration file not found: $CONFIG_FILE"
+    exit 1
+fi
+
+# IPアドレスの設定
+MASTER_IP="${VM_IPS[0]}"  # 192.168.10.111
+WORKER_IPS=("${VM_IPS[1]}" "${VM_IPS[2]}")  # 192.168.10.112, 192.168.10.113
 
 # カラー出力
 GREEN='\033[0;32m'
@@ -30,22 +42,12 @@ log() { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
-# IPアドレスの設定
-if [ -f "$SELECTED_IPS_FILE" ]; then
-    log "selected-ips.txt からIPアドレスを読み込み中..."
-    source "$SELECTED_IPS_FILE"
-    MASTER_IP=${MASTER_IP:-"192.168.10.111"}
-    WORKER_IPS=("${WORKER1_IP:-192.168.10.112}" "${WORKER2_IP:-192.168.10.113}")
-    log "  Master: $MASTER_IP"
-    log "  Workers: ${WORKER_IPS[*]}"
-else
-    warn "selected-ips.txt が見つかりません。デフォルトIPを使用します。"
-    MASTER_IP="192.168.10.111"
-    WORKER_IPS=("192.168.10.112" "192.168.10.113")
-fi
+log "設定を読み込みました:"
+log "  Master: $MASTER_IP"
+log "  Workers: ${WORKER_IPS[*]}"
+log "  SSH User: $SSH_USER"
 
-SSH_USER="ubuntu"
-SSH_KEY="/root/.ssh/id_rsa"
+SSH_KEY="$SSH_KEY_PATH"
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
 
 # SSH実行ヘルパー

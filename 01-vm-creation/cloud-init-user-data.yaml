@@ -1,0 +1,51 @@
+#cloud-config
+# Proxmox VM起動時に実行されるcloud-init設定
+# SSHサービスとパスワード認証を有効化
+
+users:
+  - name: ubuntu
+    groups: sudo
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: false
+    # パスワードは--cipasswordオプションで設定されるため、ここでは設定不要
+
+# SSH設定
+ssh_pwauth: true
+disable_root: false
+
+# パッケージのインストール
+packages:
+  - openssh-server
+  - curl
+  - wget
+  - vim
+  - net-tools
+
+# システム起動時に実行するコマンド
+runcmd:
+  # SSHサービスを確実に起動
+  - systemctl enable ssh
+  - systemctl start ssh
+  - systemctl enable sshd || true
+  - systemctl start sshd || true
+  
+  # SSHパスワード認証を有効化
+  - sed -i 's/#PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+  - sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+  - sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config || true
+  - sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config || true
+  - sed -i 's/PermitRootLogin no/PermitRootLogin yes/' /etc/ssh/sshd_config || true
+  
+  # SSHサービスを再起動
+  - systemctl restart ssh || systemctl restart sshd || true
+  
+  # ログに記録
+  - echo "$(date): SSH service configured by cloud-init" >> /var/log/cloud-init.log
+
+# 起動完了時のログ
+final_message: |
+  SSH service has been configured and started.
+  Password authentication is enabled.
+  You can now connect via SSH using password.
+

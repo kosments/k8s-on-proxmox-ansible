@@ -51,24 +51,40 @@ EOF
 setup_kubeconfig() {
     log "🔧 kubeconfigをセットアップ中..."
     
-    # マスターノードのIPを取得
-    local master_vm_id=$(get_master_vm)
-    if [[ -z "$master_vm_id" ]]; then
-        log "❌ マスターノードが見つかりません"
-        return 1
-    fi
-    
-    local master_ip=$(get_vm_ip $master_vm_id)
+    # マスターノードのIPを取得（k3sまたはkubeadmの両方に対応）
+    local master_ip="${VM_IPS[0]}"
     if [[ -z "$master_ip" ]]; then
-        log "❌ マスターノードのIPアドレスが取得できません"
+        log "❌ マスターノードのIPアドレスが設定されていません"
+        log "config.shのVM_IPSを確認してください"
         return 1
     fi
     
     log "マスターノード ($master_ip) からkubeconfigを取得中..."
-    if ssh -o StrictHostKeyChecking=no ubuntu@${master_ip} "sudo cat /etc/kubernetes/admin.conf" > kubeconfig; then
-        log "✅ kubeconfigファイルを取得しました"
+    
+    # SSH接続オプション
+    local ssh_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o UserKnownHostsFile=/dev/null"
+    local ssh_key=""
+    if [[ -n "$SSH_KEY_PATH" ]] && [[ -f "$SSH_KEY_PATH" ]]; then
+        ssh_key="-i $SSH_KEY_PATH"
+    fi
+    
+    # k3sの場合のkubeconfig取得を試行
+    log "k3sのkubeconfigを取得中（/etc/rancher/k3s/k3s.yaml）..."
+    if ssh $ssh_opts $ssh_key ${SSH_USER}@${master_ip} "sudo cat /etc/rancher/k3s/k3s.yaml" > kubeconfig.tmp 2>/dev/null; then
+        # k3sのkubeconfigを取得できた場合、127.0.0.1をmaster_ipに置換
+        sed "s/127.0.0.1/${master_ip}/g" kubeconfig.tmp > kubeconfig
+        rm -f kubeconfig.tmp
+        log "✅ k3sのkubeconfigファイルを取得しました"
+    # kubeadmの場合のkubeconfig取得を試行
+    elif ssh $ssh_opts $ssh_key ${SSH_USER}@${master_ip} "sudo cat /etc/kubernetes/admin.conf" > kubeconfig 2>/dev/null; then
+        log "✅ kubeadmのkubeconfigファイルを取得しました"
     else
         log "❌ kubeconfigファイルの取得に失敗しました"
+        log "以下を確認してください:"
+        log "  1. VM ($master_ip) が起動しているか"
+        log "  2. SSH接続が可能か（ssh ${SSH_USER}@${master_ip}）"
+        log "  3. k3sまたはkubeadmがインストールされているか"
+        rm -f kubeconfig.tmp
         return 1
     fi
     
@@ -81,15 +97,21 @@ setup_kubeconfig() {
     log "✅ KUBECONFIG環境変数を設定しました: $KUBECONFIG"
     
     # 接続テスト
-    if kubectl cluster-info &>/dev/null; then
+    if kubectl cluster-info &>/dev/null 2>&1; then
         log "✅ クラスター接続テスト成功"
+        log ""
+        log "🎉 kubeconfigセットアップ完了！"
+        log "使用方法:"
+        log "  export KUBECONFIG=${SCRIPT_DIR}/kubeconfig"
+        log "  kubectl get nodes"
     else
         log "❌ クラスター接続テスト失敗"
+        log "以下を確認してください:"
+        log "  1. kubectlがインストールされているか（which kubectl）"
+        log "  2. マスターノードのポート6443が開いているか"
+        log "  3. ネットワーク接続が正常か（ping $master_ip）"
         return 1
     fi
-    
-    log "🎉 kubeconfigセットアップ完了！"
-    log "使用方法: export KUBECONFIG=${SCRIPT_DIR}/kubeconfig"
 }
 
 # クラスター状態確認

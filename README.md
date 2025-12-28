@@ -13,8 +13,9 @@ Proxmox VE上にk3s Kubernetesクラスターを構築するためのシンプ�
 
 ```
 k8s-on-proxmox-ansible/
+├── 01-vm-creation/
+│   └── create-vms.sh        # Step 1: VM作成
 ├── scripts/
-│   ├── 01-clone-vms.sh      # Step 1: VMをクローン作成
 │   ├── 02-setup-k3s.sh      # Step 2: k3sをインストール
 │   └── 03-verify-cluster.sh # Step 3: クラスター確認
 ├── kubeconfig               # kubectl設定ファイル（生成される）
@@ -26,16 +27,16 @@ k8s-on-proxmox-ansible/
 ### 前提条件
 
 - Proxmox VE 7.x以上
-- テンプレートVM（ID: 9000）が作成済み
 - SSH鍵が設定済み（`/root/.ssh/id_rsa`）
+- 十分なストレージ容量（VM 3台 × 50GB = 約150GB）
 
-### Step 1: VMをクローン作成
+### Step 1: VMを作成
 
 ```bash
 # Proxmoxホスト上で実行
-cd /root/k8s-on-proxmox-ansible/scripts
-chmod +x *.sh
-./01-clone-vms.sh
+cd /root/k8s-on-proxmox-ansible/01-vm-creation
+chmod +x create-vms.sh
+./create-vms.sh
 ```
 
 作成されるVM:
@@ -46,6 +47,8 @@ chmod +x *.sh
 ### Step 2: k3sをインストール
 
 ```bash
+cd /root/k8s-on-proxmox-ansible/scripts
+chmod +x *.sh
 ./02-setup-k3s.sh
 ```
 
@@ -139,8 +142,10 @@ for id in 101 102 103; do
 done
 
 # 再構築
-./scripts/01-clone-vms.sh
-./scripts/02-setup-k3s.sh
+cd 01-vm-creation
+./create-vms.sh
+cd ../scripts
+./02-setup-k3s.sh
 ```
 
 ## 📊 構成図

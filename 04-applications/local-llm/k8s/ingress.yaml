@@ -1,0 +1,21 @@
+---
+# Ingress for local-llm (chat.k8s.local)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: local-llm-ingress
+  namespace: local-llm
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: chat.k8s.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: open-webui
+            port:
+              number: 80
+

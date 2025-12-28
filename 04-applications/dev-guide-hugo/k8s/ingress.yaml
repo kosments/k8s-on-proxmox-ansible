@@ -1,0 +1,23 @@
+---
+# Ingress for dev-guide (guide.k8s.local)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dev-guide-ingress
+  namespace: dev-guide
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: guide.k8s.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: dev-guide
+            port:
+              number: 80
+
