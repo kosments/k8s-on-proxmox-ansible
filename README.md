@@ -27,15 +27,45 @@ k8s-on-proxmox-ansible/
 ### 前提条件
 
 - Proxmox VE 7.x以上
-- SSH鍵が設定済み（`/root/.ssh/id_rsa`）
+- SSH鍵が設定済み、またはパスワード認証が可能（root/Bassa627）
 - 十分なストレージ容量（VM 3台 × 50GB = 約150GB）
+- リポジトリがGitHubにpushされている
+
+### Step 0: リポジトリをProxmoxホストにデプロイ
+
+**重要**: まず、リポジトリをProxmoxホストにcloneまたは転送する必要があります。
+
+詳細は [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) または [docs/FULL-DEPLOYMENT-GUIDE.md](docs/FULL-DEPLOYMENT-GUIDE.md) を参照してください。
+
+#### 方法1: デプロイスクリプトを使用（推奨）
+
+```bash
+# ローカルPCで実行
+cd /Users/kosments/dev/personal-dev/life-mng-repo/k8s-on-proxmox-ansible
+
+# 変更をpush
+git push origin master
+
+# Proxmoxホストにclone
+./deploy-to-proxmox.sh clone
+```
+
+#### 方法2: Proxmoxホストで直接clone
+
+```bash
+# Proxmoxホストで実行
+ssh root@192.168.10.108
+cd /root
+git clone https://github.com/kosments/k8s-on-proxmox-ansible.git
+cd k8s-on-proxmox-ansible
+find . -name "*.sh" -type f -exec chmod +x {} \;
+```
 
 ### Step 1: VMを作成
 
 ```bash
 # Proxmoxホスト上で実行
 cd /root/k8s-on-proxmox-ansible/01-vm-creation
-chmod +x create-vms.sh
 ./create-vms.sh
 ```
 
@@ -47,14 +77,25 @@ chmod +x create-vms.sh
 ### Step 2: k3sをインストール
 
 ```bash
+# Proxmoxホスト上で実行
 cd /root/k8s-on-proxmox-ansible/scripts
-chmod +x *.sh
 ./02-setup-k3s.sh
 ```
 
-### Step 3: クラスター確認
+### Step 3: kubectl設定とクラスター確認
 
 ```bash
+# Proxmoxホスト上で実行
+cd /root/k8s-on-proxmox-ansible/02-k8s-cluster
+./setup-kubeconfig.sh
+export KUBECONFIG=$(pwd)/kubeconfig
+
+# クラスター確認
+kubectl get nodes -o wide
+kubectl get pods -A
+
+# 詳細確認スクリプト
+cd /root/k8s-on-proxmox-ansible/scripts
 ./03-verify-cluster.sh
 ```
 
