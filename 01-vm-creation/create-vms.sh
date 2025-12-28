@@ -203,46 +203,26 @@ create_vm() {
     local gateway="${GATEWAY:-192.168.10.1}"
     local nameserver="${NAMESERVER:-8.8.8.8}"
     
-    # Cloud-initユーザーデータをVMのcloud-initドライブに設定
+    # Cloud-init設定
     log "Configuring cloud-init for VM $vm_id..."
     
-    # Cloud-initユーザーデータファイルを確認・アップロード
-    local user_data_file="${SCRIPT_DIR}/cloud-init-user-data.yaml"
-    if [ -f "$user_data_file" ]; then
-        log "Cloud-init user-data file found: $user_data_file"
-        # Proxmoxのストレージにアップロード（ローカルストレージの場合）
-        # または、cicustomオプションで直接参照
-        qm set $vm_id \
-            --scsihw virtio-scsi-pci \
-            --scsi0 ${storage}:vm-${vm_id}-disk-0 \
-            --boot c \
-            --bootdisk scsi0 \
-            --ide2 ${storage}:cloudinit \
-            --serial0 socket \
-            --vga serial0 \
-            --cicustom "user=${user_data_file}" \
-            --ciuser $SSH_USER \
-            --cipassword $SSH_PASSWORD \
-            --sshkeys /root/.ssh/id_rsa.pub \
-            --ipconfig0 ip=${vm_ip}/24,gw=$gateway \
-            --nameserver $nameserver
-    else
-        log "Cloud-init user-data file not found, using basic cloud-init settings"
-        # 基本的なcloud-init設定のみ
-        qm set $vm_id \
-            --scsihw virtio-scsi-pci \
-            --scsi0 ${storage}:vm-${vm_id}-disk-0 \
-            --boot c \
-            --bootdisk scsi0 \
-            --ide2 ${storage}:cloudinit \
-            --serial0 socket \
-            --vga serial0 \
-            --ciuser $SSH_USER \
-            --cipassword $SSH_PASSWORD \
-            --sshkeys /root/.ssh/id_rsa.pub \
-            --ipconfig0 ip=${vm_ip}/24,gw=$gateway \
-            --nameserver $nameserver
-    fi
+    # Proxmoxのcloud-init設定（--cicustomではなく、個別オプションを使用）
+    # SSHサービスとパスワード認証の設定は、VM起動後にスクリプトで実行
+    qm set $vm_id \
+        --scsihw virtio-scsi-pci \
+        --scsi0 ${storage}:vm-${vm_id}-disk-0 \
+        --boot c \
+        --bootdisk scsi0 \
+        --ide2 ${storage}:cloudinit \
+        --serial0 socket \
+        --vga serial0 \
+        --ciuser $SSH_USER \
+        --cipassword $SSH_PASSWORD \
+        --sshkeys /root/.ssh/id_rsa.pub \
+        --ipconfig0 ip=${vm_ip}/24,gw=$gateway \
+        --nameserver $nameserver
+    
+    log "Cloud-init configured for VM $vm_id"
     
     # Now resize the disk after it's attached
     log "Resizing disk to $VM_DISK_SIZE for VM $vm_id..."
