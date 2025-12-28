@@ -22,9 +22,13 @@ set -euo pipefail
 # 設定
 PROXMOX_HOST="${PROXMOX_HOST:-192.168.10.108}"
 PROXMOX_USER="${PROXMOX_USER:-root}"
+PROXMOX_PASS="${PROXMOX_PASS:-Bassa627}"
 REMOTE_PATH="/root/k8s-on-proxmox-ansible"
 LOCAL_PATH="$(pwd)"
 GIT_REPO_URL="${GIT_REPO_URL:-https://github.com/kosments/k8s-on-proxmox-ansible.git}"
+
+# SSHコマンド（後で設定される）
+SSH_CMD=""
 
 # カラー出力
 RED='\033[0;31m'
@@ -50,17 +54,33 @@ error() {
 # SSH接続テスト
 test_ssh_connection() {
     log "Testing SSH connection to Proxmox..."
-    if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$PROXMOX_USER@$PROXMOX_HOST" "echo 'SSH OK'" >/dev/null 2>&1; then
-        log "✓ SSH connection successful"
-    else
-        error "✗ SSH connection failed. Please check your SSH configuration."
+    
+    # SSH鍵認証を試す
+    if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o PasswordAuthentication=no "$PROXMOX_USER@$PROXMOX_HOST" "echo 'SSH OK'" >/dev/null 2>&1; then
+        log "✓ SSH connection successful (SSH key)"
+        SSH_CMD="ssh -o StrictHostKeyChecking=no"
+        return 0
     fi
+    
+    # パスワード認証を試す（sshpassが利用可能な場合）
+    if command -v sshpass &> /dev/null; then
+        if sshpass -p "$PROXMOX_PASS" ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o PreferredAuthentications=password "$PROXMOX_USER@$PROXMOX_HOST" "echo 'SSH OK'" >/dev/null 2>&1; then
+            log "✓ SSH connection successful (password authentication)"
+            # パスワード認証を使用するためのSSH_CMDを設定
+            SSH_CMD="sshpass -p '$PROXMOX_PASS' ssh -o StrictHostKeyChecking=no -o PreferredAuthentications=password"
+            return 0
+        fi
+    fi
+    
+    error "✗ SSH connection failed. Please check your SSH configuration."
 }
+
+# SSH_CMDはtest_ssh_connection()で設定される
 
 # リモートディレクトリ準備（Git clone）
 clone_repository() {
     log "Cloning repository from Git..."
-    ssh "$PROXMOX_USER@$PROXMOX_HOST" "
+    $SSH_CMD "$PROXMOX_USER@$PROXMOX_HOST" "
         if [ -d '$REMOTE_PATH' ] && [ -d '$REMOTE_PATH/.git' ]; then
             log 'Repository already exists. Pulling latest changes...'
             cd '$REMOTE_PATH'
@@ -85,7 +105,7 @@ clone_repository() {
 # リモートディレクトリ準備（ファイル転送用）
 prepare_remote_directory() {
     log "Preparing remote directory..."
-    ssh "$PROXMOX_USER@$PROXMOX_HOST" "
+    $SSH_CMD "$PROXMOX_USER@$PROXMOX_HOST" "
         if [ ! -d '$REMOTE_PATH' ]; then
             mkdir -p '$REMOTE_PATH'
             log 'Created remote directory: $REMOTE_PATH'
@@ -99,14 +119,27 @@ sync_files() {
     
     log "Syncing files to Proxmox (target: $target)..."
     
-    case $target in
+        case $target in
         "all"|"sync")
-            rsync -avz --delete \
-                --exclude='.git' \
-                --exclude='*.log' \
-                --exclude='.DS_Store' \
-                --exclude='node_modules' \
-                "$LOCAL_PATH/" "$PROXMOX_USER@$PROXMOX_HOST:$REMOTE_PATH/"
+            # rsyncにSSHオプションを渡す
+            if [[ "$SSH_CMD" == *sshpass* ]]; then
+                # sshpassの場合、rsyncの代わりにscpを使用
+                log "Using scp instead of rsync (password authentication)"
+                rsync -avz --delete \
+                    -e "sshpass -p '$PROXMOX_PASS' ssh -o StrictHostKeyChecking=no" \
+                    --exclude='.git' \
+                    --exclude='*.log' \
+                    --exclude='.DS_Store' \
+                    --exclude='node_modules' \
+                    "$LOCAL_PATH/" "$PROXMOX_USER@$PROXMOX_HOST:$REMOTE_PATH/"
+            else
+                rsync -avz --delete \
+                    --exclude='.git' \
+                    --exclude='*.log' \
+                    --exclude='.DS_Store' \
+                    --exclude='node_modules' \
+                    "$LOCAL_PATH/" "$PROXMOX_USER@$PROXMOX_HOST:$REMOTE_PATH/"
+            fi
             ;;
         "monitoring")
             rsync -avz \
@@ -141,7 +174,7 @@ execute_remote() {
     local description="$2"
     
     log "$description"
-    ssh "$PROXMOX_USER@$PROXMOX_HOST" "cd $REMOTE_PATH && $command"
+    $SSH_CMD "$PROXMOX_USER@$PROXMOX_HOST" "cd $REMOTE_PATH && $command"
 }
 
 # 監視セットアップ実行
@@ -238,7 +271,12 @@ show_help() {
 # SSH接続開始
 open_ssh() {
     log "Opening SSH connection to Proxmox..."
-    ssh "$PROXMOX_USER@$PROXMOX_HOST" -t "cd $REMOTE_PATH && bash"
+    if [[ "$SSH_CMD" == *sshpass* ]]; then
+        # sshpassの場合は-tオプションが使えないので、別の方法
+        $SSH_CMD "$PROXMOX_USER@$PROXMOX_HOST" "cd $REMOTE_PATH && bash"
+    else
+        ssh "$PROXMOX_USER@$PROXMOX_HOST" -t "cd $REMOTE_PATH && bash"
+    fi
 }
 
 # メイン処理
